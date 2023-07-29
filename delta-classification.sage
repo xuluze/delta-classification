@@ -411,26 +411,6 @@ def layered_lattice_polytope_from_sandwich(A,B):
     lowerLayer = [tuple(3*vector(v))+(-1,) for v in A[1].vertices()]
     return LatticePolytope(middleLayer+upperLayer+lowerLayer)
 
-def sandwich_normal_form(A,B):
-    """
-        returns data that allows to distinguish two sandwiches (A,B) 
-        (A',B') up to affine unimodular transformations.
-    """
-    #return frozenset(sorted(translative_normal_form(layered_polytope_from_sandwich(A, B)).vertices()))   # almost never hits
-#    return affine_normal_form(layered_polytope_from_sandwich(A,B))
-    #return layered_lattice_polytope_from_sandwich(A,B).normal_form(algorithm='palp')
-    #return layered_lattice_polytope_from_sandwich(A,B).normal_form(algorithm='palp_native')	# 'palp_native' brings in slower sage implementation
-
-    M = layered_lattice_polytope_from_sandwich(A,B)._palp_PM_max(check=False)  # this is the bit that we need from 'palp_native'
-    M.set_immutable()
-    return M
-
-    #return layered_lattice_polytope_from_sandwich(A,B).normal_form(algorithm='palp_modified')	# 'palp_modified' brings in modified PALP implementation
-
-    M = layered_lattice_polytope_from_sandwich(A,B).vertex_facet_pairing_matrix().permutation_normal_form(check=False)  # this is the bit that we need from 'palp_modified'
-    M.set_immutable()
-    return M
-
 
 # Sandwich factory is used to store sandwiches up to affine unimodular transformations.
 # A sandwich factory is a dictionary of dictionaries. For each possible gap, a storage
