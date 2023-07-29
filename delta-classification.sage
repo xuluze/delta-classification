@@ -125,7 +125,9 @@ class Sandwich:
         PNF.set_immutable()
         return PNF
 
+    @cached_method(do_pickle=True)
     def _key_func_LLP_palp_native_normal_form(self):
+        #breakpoint()
         return self._LLP.normal_form(algorithm='palp_native')
 
     def key_funcs(self):
@@ -141,6 +143,14 @@ class Sandwich:
     def key_costs():
         return (0, 1, 100)
 
+    def item_cost(self, i):
+        try:
+            if self.key_funcs()[i].is_in_cache():
+                return 0
+        except AttributeError:
+            pass
+        return self.key_costs()[i]
+
     def __len__(self):
         return len(self.key_funcs())
 
@@ -150,8 +160,13 @@ class Sandwich:
         """
         return self.key_funcs()[i]()
 
+    @cached_method
+    def noninvariant_keys(self):
+        return (tuple(sorted(tuple(int(x) for x in v) for v in self._A.vertices())),
+                tuple(sorted(tuple(int(x) for x in v) for v in self._B.vertices())))
+
     def __eq_noninvariant__(self, other):
-        return self._A == other._A and self._B == other._B
+        return self.noninvariant_keys() == other.noninvariant_keys()
 
     def __eq__(self, other):
         # First check fast non-invariant
@@ -230,9 +245,10 @@ class SandwichStorage:
         Return the shortest prefix of ``key`` that suffices to either:
         - identify a unique candidate for ``key``, in which case ``(key_prefix, (key, value))`` is returned
         - show that ``key`` is not in ``self``, in which case ``(key_prefix, None)`` is returned
+
+        OUTPUT: a tuple
         """
         key_prefix = ()
-        key_iter = iter(key)
         while True:
             mapping = self._key_prefix_to_mapping(key_prefix)
             try:
@@ -246,17 +262,23 @@ class SandwichStorage:
             # possible improvement: insisting on a unique candidate is too much when the next key element
             # is too expensive. When the subtrie has <= THRESHOLD candidates, it may be faster to invert:
             # loop through all candidates and do the fast non-invariant check.
-            if (cost := key.key_costs()[len(key_prefix)]) > 1:
+            if (cost := self._key_cost(key, len(key_prefix))) > 1:
                 if len(next_mapping := self._key_prefix_to_mapping(key_prefix + (None,))) <= cost:
                     for same_prefix, item in next_mapping.items():
                         if item != 'not_unique':
                             if item[0].__eq_noninvariant__(key):
-                                return key_prefix + (item[0][len(key_prefix)],), item
+                                return key_prefix + (None,) * (len(key) - len(key_prefix)), item
 
             try:
-                key_prefix = key_prefix + (next(key_iter),)
-            except StopIteration:
+                key_prefix = key_prefix + (self._key_item(key, len(key_prefix)),)
+            except IndexError:
                 assert False, 'path cannot end with not_unique'
+
+    def _key_item(self, key, index):
+        return key[index]
+
+    def _key_cost(self, key, index):
+        return key.item_cost(index)
 
     def __contains__(self, key):
         try:
@@ -272,9 +294,12 @@ class SandwichStorage:
         candidate_key, candidate_value = item
         if len(key_prefix) == len(key):
             return candidate_value
-        if candidate_key == key:
+        if candidate_key.__eq_noninvariant__(key):
             return candidate_value
-        raise KeyError(key)  # f'{key!r}; _sufficient_key_prefix returned {key_prefix=} {item=}')
+        for i in range(len(key_prefix), len(key)):
+            if self._key_item(candidate_key, i) != self._key_item(key, i):
+                raise KeyError(key)  # f'{key!r}; _sufficient_key_prefix returned {key_prefix=} {item=}')
+        return candidate_value
 
     def __setitem__(self, key, value):
         key_prefix, item = self._sufficient_key_prefix(key)
@@ -323,6 +348,37 @@ class SandwichStorage:
                     yield item
             if not_unique:
                 key_prefix.append(None)
+
+
+class SandwichStorage_with_diskcache_Cache(SandwichStorage):
+    r"""
+    Uses a :class:`diskcache.Cache` to store a mapping: noninvariant_keys -> Sandwich.
+    """
+    def __init__(self, mapping_factory=None, cache=None):
+        super().__init__(mapping_factory=mapping_factory)
+        self._cache = cache
+
+    # TO BE CONTINUED
+    def _key_item(self, key, index):
+        cost = key.item_cost(index)
+        if cost >= 42:
+            try:
+                cached = self._cache[key.noninvariant_keys()]
+            except KeyError:
+                print(f"Miss: {key.noninvariant_keys()}")
+            else:
+                print(f"Hit: {key.noninvariant_keys()}, {cached.item_cost(index)}")
+                if not cached.item_cost(index):
+                    result = cached[index]
+                    key.key_funcs()[index].set_cache(result)
+                    return result
+            result = key[index]
+            key.key_funcs()[index].set_cache(result)
+            print(f"Store: {key.noninvariant_keys()}")
+            self._cache[key.noninvariant_keys()] = key
+            return result
+
+        return key[index]
 
 
 def prepare_sandwiches(m,Delta):
@@ -423,44 +479,73 @@ sandwich_hits = 0
 sandwich_failures = 0
 
 
-## def sandwich_invariants(A, B):
-##     return sum(sum(LatticePolytope(A[1].vertices_list()).vertex_facet_pairing_matrix())), sum(sum(LatticePolytope(B.vertices_list()).vertex_facet_pairing_matrix()))
+class SandwichFactory(defaultdict):
 
-class SandwichFactory_with_diskcache_Index(defaultdict):
+    def __init__(self):
+        super().__init__(SandwichStorage)
+
+    def append_sandwich(self, A, B):
+        """
+            If no affine unimodular image of the sandwich (A,B) is in the sandwich factory self,
+            the sandwich (A,B) is appended to self.
+        """
+        global sandwich_hits, sandwich_failures
+
+        SNF = Sandwich(A,B)
+        Gap = SNF.gap()
+
+        # crucial that SNF is a LatticePolytope (or something else with a good hash),
+        # not a Polyhedron (which has a poor hash)
+        if SNF not in self[Gap]:
+            self[Gap][SNF] = [A,B]
+            sandwich_failures += 1
+        else:
+            sandwich_hits += 1
+
+
+class SandwichFactory_with_diskcache_Index(SandwichFactory):
     r"""
     gap -> SandwichStorage
     """
     def __init__(self, dirname):
+        try:
+            import diskcache
+        except ImportError:
+            raise ImportError('Use !pip install diskcache')
+
         self._dirname = dirname
+        self._sandwich_cache = diskcache.Cache(self._dirname + f'_invariants')
 
     def __missing__(self, key):
-        value = SandwichStorage(mapping_factory=make_diskcache_Index_factory(self._dirname + f'_gap{key}'))
+        mapping_factory = make_diskcache_Index_factory(self._dirname + f'_gap{key}')
+        value = SandwichStorage_with_diskcache_Cache(mapping_factory, cache=self._sandwich_cache)
         self[key] = value
         return value
 
     def __repr__(self):
         return f'{self.__class__.__name__}({self._dirname!r}) with keys {sorted(self)}'
 
+    def append_sandwich(self, A, B):
+        global sandwich_hits, sandwich_failures
 
-def append_sandwich(sf, A, B):
-    """
-        If no affine unimodular image of the sandwich (A,B) is in the sandwich factory sf,
-        the sandwich (A,B) is appended to sf.
-    """
-    global sandwich_hits, sandwich_failures
+        S = Sandwich(A,B)
+        ## SNF = self._sandwich_cache.get(S.noninvariant_keys(), S)
+        SNF = S
 
-    Gap = B.integral_points_count() - A[1].integral_points_count()
-    SNF = Sandwich(A,B)
+        Gap = SNF.gap()
 
-    # crucial that SNF is a LatticePolytope (or something else with a good hash),
-    # not a Polyhedron (which has a poor hash)
-    if SNF not in sf[Gap]:
-        sf[Gap][SNF] = [A,B]
-        #print(SNF)
-        #print(sandwich_invariants(A, B))
-        sandwich_failures += 1
-    else:
-        sandwich_hits += 1
+        # crucial that SNF is a LatticePolytope (or something else with a good hash),
+        # not a Polyhedron (which has a poor hash)
+        if SNF not in self[Gap]:
+            self[Gap][SNF] = [A,B]
+            sandwich_failures += 1
+        else:
+            sandwich_hits += 1
+
+        ## if SNF._key_func_LLP_palp_native_normal_form.is_in_cache():
+        ##     self._sandwich_cache[S.noninvariant_keys()] = SNF
+        ##     if S is not SNF:
+        ##         self._sandwich_cache[SNF.noninvariant_keys()] = SNF
 
 
 def new_sandwich_factory(m, Delta, extremal, dirname=None):
@@ -474,7 +559,7 @@ def new_sandwich_factory(m, Delta, extremal, dirname=None):
     #sandwich_factory = defaultdict(Trie)
 
     if dirname is None:
-        sandwich_factory = defaultdict(SandwichStorage)
+        sandwich_factory = SandwichFactory()
     else:
         dirname += f'_m{m}_Delta{Delta}'
         if extremal:
@@ -482,7 +567,7 @@ def new_sandwich_factory(m, Delta, extremal, dirname=None):
         sandwich_factory = SandwichFactory_with_diskcache_Index(dirname)
 
     for A,B in prepare_sandwiches(m,Delta):
-        append_sandwich(sandwich_factory,A,B)
+        sandwich_factory.append_sandwich(A,B)
     return sandwich_factory
 
 
@@ -525,16 +610,16 @@ def delta_classification(m, Delta, extremal, dirname=None):
             red_sand = reduce_sandwich(newA,B,Delta)
             if (extremal):
                 if (red_sand.integral_points_count() >= cmax):
-                    append_sandwich(sf,newA,red_sand)
+                    sf.append_sandwich(newA, red_sand)
                     npts_blow_up = blow_up_of_A.integral_points_count()
                     if (npts_blow_up > cmax):
                         cmax = npts_blow_up
                 if (reduction_of_B.integral_points_count() >= cmax):
-                    append_sandwich(sf,A,reduction_of_B)
+                    sf.append_sandwich(A, reduction_of_B)
             else:
-                append_sandwich(sf,newA,red_sand)
-                append_sandwich(sf,A,reduction_of_B)
-            
+                sf.append_sandwich(newA, red_sand)
+                sf.append_sandwich(A, reduction_of_B)
+
         del sf[maxGap]
         maxGap = max(sf.keys())
 
