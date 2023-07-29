@@ -118,10 +118,10 @@ class Sandwich:
 
     @cached_method(do_pickle=True)
     def _key_func_LLP_permutation_normal_form(self):
-        PNF = self._LLP.normal_form(algorithm='palp')
+        #PNF = self._LLP.normal_form(algorithm='palp')
         #PNF = self._LLP_vertex_facet_pairing_matrix.permutation_normal_form(check=False)  # faster
-        #PNF = self._LLP._palp_PM_max(check=False)       # slower (before https://github.com/sagemath/sage/pull/35997), much faster (after)
-        #PNF.set_immutable()
+        PNF = self._LLP._palp_PM_max(check=False)       # slower (before https://github.com/sagemath/sage/pull/35997), much faster (after)
+        PNF.set_immutable()
         return PNF
 
     def key_funcs(self):
