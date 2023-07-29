@@ -118,11 +118,15 @@ class Sandwich:
 
     @cached_method(do_pickle=True)
     def _key_func_LLP_permutation_normal_form(self):
-        #PNF = self._LLP.normal_form(algorithm='palp')
+        "FIXME: This is apparently NOT a normal form"
+        #return self._LLP.normal_form(algorithm='palp')  # fastest of all, but crashes for dim > 3.
         #PNF = self._LLP_vertex_facet_pairing_matrix.permutation_normal_form(check=False)  # faster
         PNF = self._LLP._palp_PM_max(check=False)       # slower (before https://github.com/sagemath/sage/pull/35997), much faster (after)
         PNF.set_immutable()
         return PNF
+
+    def _key_func_LLP_palp_native_normal_form(self):
+        return self._LLP.normal_form(algorithm='palp_native')
 
     def key_funcs(self):
         return (self._key_func_dimensions,
@@ -130,7 +134,8 @@ class Sandwich:
                 #self._key_func_A_vertex_B_facet_partitions,
                 #self._key_func_B_permutation_normal_form,
                 #self._key_func_A_vertex_B_facet_permutation_normal_form,
-                self._key_func_LLP_permutation_normal_form)
+                #self._key_func_LLP_permutation_normal_form
+                self._key_func_LLP_palp_native_normal_form)
 
     @staticmethod
     def key_costs():
@@ -466,6 +471,7 @@ def append_sandwich(sf, A, B):
 
     Gap = B.integral_points_count() - A[1].integral_points_count()
     SNF = Sandwich(A,B)
+
     # crucial that SNF is a LatticePolytope (or something else with a good hash),
     # not a Polyhedron (which has a poor hash)
     if SNF not in sf[Gap]:
