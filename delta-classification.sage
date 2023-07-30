@@ -13,7 +13,7 @@ import sys
 
 from collections import defaultdict
 
-from sage.geometry.lattice_polytope import LatticePolytope
+from sage.geometry.lattice_polytope import LatticePolytope, _palp_canonical_order
 from sage.misc.lazy_attribute import lazy_attribute
 
 # Using the logging package one can conveniently turn off and on the auxiliary messages  
@@ -74,12 +74,69 @@ class Sandwich:
     @cached_method
     def _key_func_B_partitions(self):
         r"""
-        Invariant: first symmetric function
+        Invariants: degree-1 symmetric functions, max symmetric functions of rows and columns
         """
         row_sums = Partition(sorted(sum(self._B_vertex_facet_pairing_matrix.columns()), reverse=True))
         column_sums = Partition(sorted(sum(self._B_vertex_facet_pairing_matrix.rows()), reverse=True))
+        column_maxes = Partition(sorted((max(x for x in column)
+                                        for column in self._B_vertex_facet_pairing_matrix.columns()),
+                                        reverse=True))
+        row_maxes = Partition(sorted((max(x for x in row)
+                                      for row in self._B_vertex_facet_pairing_matrix.rows()),
+                                     reverse=True))
+
         #print(row_sums, column_sums)
-        return row_sums, column_sums
+        return row_sums, column_sums, row_maxes, column_maxes
+
+    @lazy_attribute
+    def _A_vertex_facet_pairing_matrix(self):
+        return self._A_LP.vertex_facet_pairing_matrix()
+
+    @staticmethod
+    def _row_sums(matrix):
+        return Partition(sorted(sum(matrix.columns()), reverse=True))
+
+    @staticmethod
+    def _row_power_sums(matrix, powers):
+        return tuple(Partition(sorted((sum(x**k for x in row) for row in matrix.rows()),
+                                      reverse=True))
+                     for k in powers)
+
+    @staticmethod
+    def _column_sums(matrix):
+        return Partition(sorted(sum(matrix.rows()), reverse=True))
+
+    @staticmethod
+    def _column_power_sums(matrix, powers):
+        return tuple(Partition(sorted((sum(x**k for x in column) for column in matrix.columns()),
+                                      reverse=True))
+                     for k in powers)
+    
+    @staticmethod
+    def _row_maxes(matrix):
+        return Partition(sorted((max(x for x in row) for row in matrix.rows()),
+                                reverse=True))
+
+    @staticmethod
+    def _column_maxes(matrix):
+        return Partition(sorted((max(x for x in column) for column in matrix.columns()),
+                                reverse=True))
+
+    @staticmethod
+    def _row_and_column_sums_and_maxes(matrix):
+        return (Sandwich._row_sums(matrix), Sandwich._column_sums(matrix),
+                Sandwich._row_maxes(matrix), Sandwich._column_maxes(matrix))
+
+    @staticmethod
+    def _row_and_column_power_sums(matrix, powers):
+        return (Sandwich._row_power_sums(matrix, powers), Sandwich._column_power_sums(matrix, powers))
+
+    @cached_method
+    def _key_func_A_partitions(self):
+        r"""
+        Invariants: degree-1 symmetric functions, max symmetric functions of rows and columns
+        """
+        return Sandwich._row_and_column_sums_and_maxes(self._A_vertex_facet_pairing_matrix)
 
     @lazy_attribute
     def _A_vertex_B_facet_pairing_matrix(self):
@@ -92,9 +149,8 @@ class Sandwich:
 
     @cached_method
     def _key_func_A_vertex_B_facet_partitions(self):
-        row_sums = Partition(sorted(sum(self._A_vertex_B_facet_pairing_matrix.columns()), reverse=True))
-        column_sums = Partition(sorted(sum(self._A_vertex_B_facet_pairing_matrix.rows()), reverse=True))
-        return row_sums, column_sums
+        #return Sandwich._row_and_column_sums_and_maxes(self._A_vertex_B_facet_pairing_matrix)
+        return Sandwich._row_and_column_power_sums(self._A_vertex_B_facet_pairing_matrix, range(1, 3))
 
     @cached_method(do_pickle=True)
     def _key_func_B_permutation_normal_form(self):
@@ -116,32 +172,45 @@ class Sandwich:
     def _LLP_vertex_facet_pairing_matrix(self):
         return self._LLP.vertex_facet_pairing_matrix()
 
+    @lazy_attribute
+    def _LLP_PM_max_and_permutations(self):
+        PM_max, permutations = self._LLP._palp_PM_max(check=True)
+        PM_max.set_immutable()
+        return PM_max, permutations
+
     @cached_method(do_pickle=True)
     def _key_func_LLP_permutation_normal_form(self):
         "FIXME: This is apparently NOT a normal form"
         #return self._LLP.normal_form(algorithm='palp')  # fastest of all, but crashes for dim > 3.
         #PNF = self._LLP_vertex_facet_pairing_matrix.permutation_normal_form(check=False)  # faster
-        PNF = self._LLP._palp_PM_max(check=False)       # slower (before https://github.com/sagemath/sage/pull/35997), much faster (after)
-        PNF.set_immutable()
+        #PNF = self._LLP._palp_PM_max(check=False)       # slower (before https://github.com/sagemath/sage/pull/35997), much faster (after)
+        
+        #PNF.set_immutable()
+        PNF = self._LLP_PM_max_and_permutations[0]
         return PNF
 
     @cached_method(do_pickle=True)
     def _key_func_LLP_palp_native_normal_form(self):
         #breakpoint()
-        return self._LLP.normal_form(algorithm='palp_native')
+        #return self._LLP.normal_form(algorithm='palp_native')
+        PM_max, permutations = self._LLP_PM_max_and_permutations
+        return _palp_canonical_order(self._LLP.vertices(), PM_max, permutations)[0]
 
     def key_funcs(self):
         return (self._key_func_dimensions,
-                self._key_func_B_partitions,
-                #self._key_func_A_vertex_B_facet_partitions,
+                #self._key_func_A_partitions,
+                #self._key_func_B_partitions,
+                self._key_func_A_vertex_B_facet_partitions,
                 #self._key_func_B_permutation_normal_form,
                 #self._key_func_A_vertex_B_facet_permutation_normal_form,
-                #self._key_func_LLP_permutation_normal_form
+                #self._key_func_LLP_permutation_normal_form,
                 self._key_func_LLP_palp_native_normal_form)
 
     @staticmethod
     def key_costs():
-        return (0, 1, 100)
+        return (0,
+                1,
+                50)
 
     def item_cost(self, i):
         try:
