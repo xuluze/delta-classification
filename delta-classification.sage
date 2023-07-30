@@ -243,8 +243,10 @@ class SandwichStorage:
     def _sufficient_key_prefix(self, key):
         r"""
         Return the shortest prefix of ``key`` that suffices to either:
-        - identify a unique candidate for ``key``, in which case ``(key_prefix, (key, value))`` is returned
-        - show that ``key`` is not in ``self``, in which case ``(key_prefix, None)`` is returned
+        - identify a unique candidate for ``key``, in which case
+          ``(key_prefix, (candidate_key, candidate_value), checked)`` is returned;
+          when ``checked`` is True, the ``candidate_key`` is already a known hit.
+        - show that ``key`` is not in ``self``, in which case ``(key_prefix, None, False)`` is returned
 
         OUTPUT: a tuple
         """
@@ -254,10 +256,10 @@ class SandwichStorage:
             try:
                 item = mapping[key_prefix]
             except KeyError:
-                return key_prefix, None
+                return key_prefix, None, False
             else:
                 if item != 'not_unique':
-                    return key_prefix, item
+                    return key_prefix, item, False
 
             # possible improvement: insisting on a unique candidate is too much when the next key element
             # is too expensive. When the subtrie has <= THRESHOLD candidates, it may be faster to invert:
@@ -267,7 +269,7 @@ class SandwichStorage:
                     for same_prefix, item in next_mapping.items():
                         if item != 'not_unique':
                             if item[0].__eq_noninvariant__(key):
-                                return key_prefix + (None,) * (len(key) - len(key_prefix)), item
+                                return key_prefix + (self._key_item(item, 0),), item, True
 
             try:
                 key_prefix = key_prefix + (self._key_item(key, len(key_prefix)),)
@@ -288,11 +290,11 @@ class SandwichStorage:
         return True
 
     def __getitem__(self, key):
-        key_prefix, item = self._sufficient_key_prefix(key)
+        key_prefix, item, checked = self._sufficient_key_prefix(key)
         if item is None:
             raise KeyError(key)
         candidate_key, candidate_value = item
-        if len(key_prefix) == len(key):
+        if len(key_prefix) == len(key) or checked:
             return candidate_value
         if candidate_key.__eq_noninvariant__(key):
             return candidate_value
@@ -302,9 +304,9 @@ class SandwichStorage:
         return candidate_value
 
     def __setitem__(self, key, value):
-        key_prefix, item = self._sufficient_key_prefix(key)
+        key_prefix, item, checked = self._sufficient_key_prefix(key)
         mapping = self._key_prefix_to_mapping(key_prefix)
-        if item is not None:
+        if checked or item is not None:
             candidate_key, candidate_value = item
             while len(key_prefix) < len(key):
                 candidate_next = candidate_key[len(key_prefix)]
