@@ -29,14 +29,14 @@ def is_difference_set(P,summand=true):
 
 def embed_polygon(P):
     """
-        Embed a polygon into height 0 in dimension three. 
+        Embed a polygon into height 0 in dimension three.
         NOTE: this can be used for polytopes, too, but we use it only for polygons.
     """
     return Polyhedron([list(v) + [0] for v in P.vertices()])
 
 def affine_hull(A):
     """
-        affine hull of a polyhedron, represented as a Polyhedron object. 
+        affine hull of a polyhedron, represented as a Polyhedron object.
     """
     return Polyhedron(ieqs=[vector(e) for e in A.equations()]+[-vector(e) for e in A.equations()])
 
@@ -52,26 +52,26 @@ def support_function(P,u):
 def facets_and_outer_normals(P):
     """
         generator of pairs facet,outer_normal_of_facet
-    """ 
+    """
     for ineq in P.Hrepresentation():
         F=ineq_face(P,ineq)
         normalF=-vector(ineq[1:])
         yield F,normalF
-        
+
 def interior_integral_points(P):
     return [z for z in P.integral_points() if P.interior_contains(z)]
 
 def as_full_dim_polyhedron(P):
     P = P.lattice_polytope()
-    
+
     L = P.lattice()
     V = P.vertices()
-    
+
     if L.zero() not in V:
         V = [v-V[0] for v in V]
-    
+
     S = L.span(V).saturation()
-    
+
     return Polyhedron([S.coordinates(v) for v in V])
 
 
@@ -97,7 +97,7 @@ def affine_normal_form(P):
         # in case PALP (hidden behind normal_form()) has some trouble to handle Q, we'll catch the exception and see what P was
         Q=Polyhedron(Q.lattice_polytope().normal_form())
     except Exception as e:
-        print("FINALLY CAUGHT ONE!!")    
+        print("FINALLY CAUGHT ONE!!")
         Q = Polyhedron(Q.lattice_polytope().normal_form(algorithm='palp_native'))
 #        print("ERROR MESSAGE:")
 #        print("affine_normal_form(P) failed on the polytope P with the vertices")
@@ -112,10 +112,10 @@ def affine_normal_form(P):
 def translative_normal_form(P):
     """
         Return P minus the lexicographically minimal vertex of P.
-        Properties of the returned polytope: 
+        Properties of the returned polytope:
             if P and Q coincide up to translations, then their translative normal form is the same.
             the zero is always a vertex of the returned polytope.
-        
+
     """
     return P-vector(min(P.vertices()))
 
@@ -127,7 +127,7 @@ def translative_normal_form(P):
 def std_simplex(d):
     return Polyhedron([d*(0,)]+identity_matrix(d).rows())
 
-    
+
 def delta_crosspolytopes(m,Delta):
     """
         returns a list of bases of all m-dimensional crosspolytopes with determinant equal to Delta
@@ -135,7 +135,7 @@ def delta_crosspolytopes(m,Delta):
     # TODO: this function could have been implemented as a generator.
     FILE_NAME='data/hnfs-%d-%d.sage' % (m,Delta)
     load(FILE_NAME)
-    
+
     return HNFs
 
 
