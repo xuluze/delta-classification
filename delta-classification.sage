@@ -358,23 +358,23 @@ class SandwichStorage_with_diskcache_Cache(SandwichStorage):
         super().__init__(mapping_factory=mapping_factory)
         self._cache = cache
 
-    # TO BE CONTINUED
     def _key_item(self, key, index):
         cost = key.item_cost(index)
         if cost >= 42:
             try:
                 cached = self._cache[key.noninvariant_keys()]
             except KeyError:
-                print(f"Miss: {key.noninvariant_keys()}")
+                pass
+                #print(f"Miss: {key.noninvariant_keys()}")
             else:
-                print(f"Hit: {key.noninvariant_keys()}, {cached.item_cost(index)}")
+                #print(f"Hit: {key.noninvariant_keys()}, {cached.item_cost(index)}")
                 if not cached.item_cost(index):
                     result = cached[index]
                     key.key_funcs()[index].set_cache(result)
                     return result
             result = key[index]
             key.key_funcs()[index].set_cache(result)
-            print(f"Store: {key.noninvariant_keys()}")
+            #print(f"Store: {key.noninvariant_keys()}")
             self._cache[key.noninvariant_keys()] = key
             return result
 
