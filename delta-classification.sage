@@ -16,7 +16,7 @@ from collections import defaultdict
 from sage.geometry.lattice_polytope import LatticePolytope, _palp_canonical_order
 from sage.misc.lazy_attribute import lazy_attribute
 
-# Using the logging package one can conveniently turn off and on the auxiliary messages  
+# Using the logging package one can conveniently turn off and on the auxiliary messages
 
 logging.basicConfig(format='%(message)s',stream=sys.stdout,level=logging.INFO)
 # After modifying the level from, say, logging.INFO to logging.WARNING , the change will come into force only after _restarting the sage session_ and reloading
@@ -111,7 +111,7 @@ class Sandwich:
         return tuple(Partition(sorted((sum(x**k for x in column) for column in matrix.columns()),
                                       reverse=True))
                      for k in powers)
-    
+
     @staticmethod
     def _row_maxes(matrix):
         return Partition(sorted((max(x for x in row) for row in matrix.rows()),
@@ -184,7 +184,7 @@ class Sandwich:
         #return self._LLP.normal_form(algorithm='palp')  # fastest of all, but crashes for dim > 3.
         #PNF = self._LLP_vertex_facet_pairing_matrix.permutation_normal_form(check=False)  # faster
         #PNF = self._LLP._palp_PM_max(check=False)       # slower (before https://github.com/sagemath/sage/pull/35997), much faster (after)
-        
+
         #PNF.set_immutable()
         PNF = self._LLP_PM_max_and_permutations[0]       # same as above, but stores permutations for use by _key_func_LLP_palp_native_normal_form below
         return PNF
@@ -457,16 +457,25 @@ class SandwichStorage_with_diskcache_Cache(SandwichStorage):
 
 
 def prepare_sandwiches(m,Delta):
-    for basisA in delta_normal_forms(m,Delta):
+    if Delta == 2:
+        HNFs = []
+        for nonzeros in range(m):
+            R = matrix.identity(m)
+            for i in range(m-nonzeros-1,m):
+                R[i, m-1] += 1
+            HNFs.append(R)
+    else:
+        HNFs = delta_normal_forms(m,Delta)
+    for basisA in HNFs:
         # first, we generate A and halfA out of basisA
         mbA = matrix(basisA)
         mA = mbA.augment(-mbA)
         A = Polyhedron(mA.transpose())
         halfA = break_symmetry(A,m)
-    
+
         # second, the outer container B is the centrally symmetric parallelotope spanned by the vectors in basisA
         B = polytopes.parallelotope(mA.transpose())
-        
+
         # B may contain some integral points that are Delta-too-large with respect to A, and so we do:
         B = reduce_sandwich([halfA,A],B,Delta)
         yield [halfA,A],B
@@ -477,14 +486,12 @@ def break_symmetry(A,m):
     	takes a centrally symmetric m-dimensional polytope A
     	computes a subset halfA of its vertices I such that I = conv(halfA \cup -halfA)
     """
-    vertA = [vector(z) for z in A.vertices_list()]
     halfA = []
-    for l in vertA:
-    	if (-l in halfA):
-    		continue
-    	halfA.append(l)
+    for z in A.vertices():
+        l = vector(z)
+        if next((x for x in l if x != 0), None) > 0:
+            halfA.append(l)
     return halfA
-
 
 def is_extendable(S,v,Delta):
     """
@@ -502,7 +509,7 @@ def reduce_sandwich(A,B,Delta):
     """
         For a given sandwich (A,B) and a value of Delta
         the function returns a polytope
-        obtained by removing all of the lattice points v of B 
+        obtained by removing all of the lattice points v of B
         with the property that if v is added to A, there will be a determinant of absolute value > Delta
     """
     to_be_removed = set()
@@ -529,7 +536,7 @@ def layered_lattice_polytope_from_sandwich(A,B):
     """ 3*B is embedded into height 0, two copies of 3*A are embedded into heights 1 and -1.
         Then, one generates a polytope based on these three layers at heights -1,0 and 1
         Note: If A and B are centrally symmetric, then the resulting polytope is centrally symmetric as well.
-    """ 
+    """
     middleLayer = [tuple(3*vector(v))+(0,) for v in B.vertices()]
     upperLayer = [tuple(3*vector(v))+(1,) for v in A[1].vertices()]
     lowerLayer = [tuple(3*vector(v))+(-1,) for v in A[1].vertices()]
@@ -539,7 +546,7 @@ def layered_lattice_polytope_from_sandwich(A,B):
 # Sandwich factory is used to store sandwiches up to affine unimodular transformations.
 # A sandwich factory is a dictionary of dictionaries. For each possible gap, a storage
 # for sandwiches with this gap is created. The latter storage
-# is a dictionary with key,value pairs such that the value is a sandwich and 
+# is a dictionary with key,value pairs such that the value is a sandwich and
 # the respective key is the sandwich normal form of this sandwich.
 
 
@@ -637,13 +644,13 @@ def delta_classification(m, Delta, extremal, dirname=None):
     """
     sf = new_sandwich_factory(m, Delta, extremal, dirname=dirname)
     maxGap = max(sf.keys())
-    
-    # set the known lower bound for h(Delta,m) by Lee et al. 
+
+    # set the known lower bound for h(Delta,m) by Lee et al.
     if (extremal):
         cmax = m^2 - m + 1 *2*m*Delta
-    
+
     while maxGap > 0:
-        
+
         sandwich_factory_statistics(sf)
         
         for A, B in sf[maxGap].values():
@@ -651,11 +658,11 @@ def delta_classification(m, Delta, extremal, dirname=None):
             for v in B.vertices(): # pick a vertex of B which is not in A
                 if v not in A[1]:
                     break
-            
+
             blow_up_of_A = Polyhedron(list(A[1].vertices()) + [vector(v)] + [-vector(v)])  ## this uses that all points in B are "Delta-ok" for A
             half_of_blow_up_of_A = break_symmetry(blow_up_of_A,m)
             reduction_of_B = Polyhedron([z for z in B.integral_points() if (vector(z) != vector(v) and vector(z) != -vector(v))])
-            
+
             newA = [half_of_blow_up_of_A,blow_up_of_A]
             red_sand = reduce_sandwich(newA,B,Delta)
             if (extremal):
@@ -674,10 +681,10 @@ def delta_classification(m, Delta, extremal, dirname=None):
         maxGap = max(sf.keys())
 
     sandwich_factory_statistics(sf)
-        
+
     result = []
     for A,B in sf[0].values():
-        result.append(A[1])	## only store the polytope in A
+        result.append(A[1])  ## only store the polytope in A
 
     return result
 
@@ -695,7 +702,7 @@ def update_delta_classification_database(m,Delta,extremal):
 
     if missingDelta:
         # we should run the delta classification
-        
+
         if (extremal):
             f = open(FILE_NAME_DELTA_EXTR % (m,Delta),'w')
             if (os.path.isfile(FILE_NAME_DELTA % (m,Delta))):
@@ -718,8 +725,8 @@ def update_delta_classification_database(m,Delta,extremal):
             f = open(FILE_NAME_DELTA % (m,Delta),'w')
             print([[tuple(p) for p in P.vertices()] for P in result],file=f)
             f.close()
-            
-        
+
+
 def lattice_polytopes_with_given_dimension_and_delta(m,Delta,extremal):
     """
         That's the main function for users of this module. It returns the list of all [extremal=false] or only h(Delta,m)-attaining [extremal=true]
@@ -733,7 +740,7 @@ def lattice_polytopes_with_given_dimension_and_delta(m,Delta,extremal):
         f = open(FILE_NAME_DELTA_EXTR % (m,Delta),'r')
     else:
         f = open(FILE_NAME_DELTA % (m,Delta),'r')
-    
+
     L = eval(f.read().replace('\n',' '))
     f.close()
     return [Polyhedron(P) for P in L]
@@ -743,14 +750,13 @@ def generalized_heller_constant(m,Delta,extremal):
     """
         Compute the generalized Heller constant h(Delta,m) and a point set attaining it
     """
-    
+
     DeltaPolytopes = lattice_polytopes_with_given_dimension_and_delta(m,Delta,extremal)
     nmax = 0
     for P in DeltaPolytopes:
-    	npoints = P.integral_points_count()
-    	if npoints > nmax:
-    		nmax = npoints
-    		Pmax = P
+        npoints = P.integral_points_count()
+        if npoints > nmax:
+            nmax = npoints
+            Pmax = P
     return nmax , Pmax, len(DeltaPolytopes)
-    
 
