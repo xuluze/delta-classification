@@ -494,6 +494,9 @@ class SandwichFactory(defaultdict):
         else:
             sandwich_hits += 1
 
+    def __repr__(self):
+        return f'{self.__class__.__name__} with keys {sorted(self)}'
+
 
 class SandwichFactory_with_diskcache_Index(SandwichFactory):
     r"""
