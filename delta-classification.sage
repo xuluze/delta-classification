@@ -186,7 +186,7 @@ class Sandwich:
         #PNF = self._LLP._palp_PM_max(check=False)       # slower (before https://github.com/sagemath/sage/pull/35997), much faster (after)
         
         #PNF.set_immutable()
-        PNF = self._LLP_PM_max_and_permutations[0]
+        PNF = self._LLP_PM_max_and_permutations[0]       # same as above, but stores permutations for use by _key_func_LLP_palp_native_normal_form below
         return PNF
 
     @cached_method(do_pickle=True)
@@ -430,24 +430,28 @@ class SandwichStorage_with_diskcache_Cache(SandwichStorage):
         self._cache = cache
 
     def _key_item(self, key, index):
-        cost = key.item_cost(index)
-        if cost >= 42:
-            try:
-                cached = self._cache[key.noninvariant_keys()]
-            except KeyError:
-                pass
-                #print(f"Miss: {key.noninvariant_keys()}")
-            else:
-                #print(f"Hit: {key.noninvariant_keys()}, {cached.item_cost(index)}")
-                if not cached.item_cost(index):
-                    result = cached[index]
-                    key.key_funcs()[index].set_cache(result)
-                    return result
-            result = key[index]
-            key.key_funcs()[index].set_cache(result)
-            #print(f"Store: {key.noninvariant_keys()}")
-            self._cache[key.noninvariant_keys()] = key
-            return result
+        try:
+            cost = key.item_cost(index)
+        except AttributeError:
+            pass
+        else:
+            if cost >= 42:
+                try:
+                    cached = self._cache[key.noninvariant_keys()]
+                except KeyError:
+                    pass
+                    #print(f"Miss: {key.noninvariant_keys()}")
+                else:
+                    #print(f"Hit: {key.noninvariant_keys()}, {cached.item_cost(index)}")
+                    if not cached.item_cost(index):
+                        result = cached[index]
+                        key.key_funcs()[index].set_cache(result)
+                        return result
+                result = key[index]
+                key.key_funcs()[index].set_cache(result)
+                #print(f"Store: {key.noninvariant_keys()}")
+                self._cache[key.noninvariant_keys()] = key
+                return result
 
         return key[index]
 
@@ -488,9 +492,9 @@ def is_extendable(S,v,Delta):
     """
     m = len(v)
     for C in Combinations(S,m-1):
-    	M = matrix(C + [list(v)])
-    	if abs(det(M)) > Delta:
-    		return false    
+        M = matrix(C + [list(v)])
+        if abs(det(M)) > Delta:
+            return false    
     return true
 
 
@@ -501,20 +505,23 @@ def reduce_sandwich(A,B,Delta):
         obtained by removing all of the lattice points v of B 
         with the property that if v is added to A, there will be a determinant of absolute value > Delta
     """
-    to_be_removed = []
-    to_be_kept = []
-    for v in B.integral_points():
-    	if v in A[1]:
-    		continue
-    	if (v in to_be_removed or v in to_be_kept):	## this just avoids considering -w in case that w was considered already before
-    		continue
-    	if is_extendable(A[0],v,Delta):
-    		to_be_kept.append(vector(v))
-    		to_be_kept.append(-vector(v))
-    	else:
-    		to_be_removed.append(vector(v))
-    		to_be_removed.append(-vector(v))
-    Z = [vector(z) for z in B.integral_points()]
+    to_be_removed = set()
+    to_be_kept = set()
+
+    Z = [vector(z, immutable=True) for z in B.integral_points()]
+    for v in Z:
+        if v in A[1]:
+            continue
+        if v in to_be_removed or v in to_be_kept:  ## this just avoids considering -w in case that w was considered already before
+            continue
+        mv = -v
+        mv.set_immutable()
+        if is_extendable(A[0],v,Delta):
+            to_be_kept.add(v)
+            to_be_kept.add(mv)
+        else:
+            to_be_removed.add(v)
+            to_be_removed.add(mv)
     return Polyhedron([z for z in Z if z not in to_be_removed])
 
 
@@ -581,7 +588,8 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
         self._sandwich_cache = diskcache.Cache(self._dirname + f'_invariants')
 
     def __missing__(self, key):
-        mapping_factory = make_diskcache_Index_factory(self._dirname + f'_gap{key}')
+        #mapping_factory = make_diskcache_Index_factory(self._dirname + f'_gap{key}')
+        mapping_factory = None  # we are testing only the Cache now
         value = SandwichStorage_with_diskcache_Cache(mapping_factory, cache=self._sandwich_cache)
         self[key] = value
         return value
@@ -644,7 +652,7 @@ def delta_classification(m, Delta, extremal, dirname=None):
                 if v not in A[1]:
                     break
             
-            blow_up_of_A = Polyhedron(list(A[1].vertices()) + [vector(v)] + [-vector(v)])	## this uses that all points in B are "Delta-ok" for A
+            blow_up_of_A = Polyhedron(list(A[1].vertices()) + [vector(v)] + [-vector(v)])  ## this uses that all points in B are "Delta-ok" for A
             half_of_blow_up_of_A = break_symmetry(blow_up_of_A,m)
             reduction_of_B = Polyhedron([z for z in B.integral_points() if (vector(z) != vector(v) and vector(z) != -vector(v))])
             
