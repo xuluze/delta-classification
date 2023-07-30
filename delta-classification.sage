@@ -449,16 +449,6 @@ def reduce_sandwich(A,B,Delta):
     return Polyhedron([z for z in Z if z not in to_be_removed])
 
 
-def layered_polytope_from_sandwich(A,B):
-    """ 3*B is embedded into height 0, two copies of 3*A are embedded into heights 1 and -1.
-        Then, one generates a polytope based on these three layers at heights -1,0 and 1
-        Note: If A and B are centrally symmetric, then the resulting polytope is centrally symmetric as well.
-    """ 
-    middleLayer = [tuple(3*vector(v))+(0,) for v in B.vertices()]
-    upperLayer = [tuple(3*vector(v))+(1,) for v in A[1].vertices()]
-    lowerLayer = [tuple(3*vector(v))+(-1,) for v in A[1].vertices()]
-    return Polyhedron(middleLayer+upperLayer+lowerLayer)
-
 def layered_lattice_polytope_from_sandwich(A,B):
     """ 3*B is embedded into height 0, two copies of 3*A are embedded into heights 1 and -1.
         Then, one generates a polytope based on these three layers at heights -1,0 and 1
@@ -526,28 +516,6 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
 
     def __repr__(self):
         return f'{self.__class__.__name__}({self._dirname!r}) with keys {sorted(self)}'
-
-    def append_sandwich(self, A, B):
-        global sandwich_hits, sandwich_failures
-
-        S = Sandwich(A,B)
-        ## SNF = self._sandwich_cache.get(S.noninvariant_keys(), S)
-        SNF = S
-
-        Gap = SNF.gap()
-
-        # crucial that SNF is a LatticePolytope (or something else with a good hash),
-        # not a Polyhedron (which has a poor hash)
-        if SNF not in self[Gap]:
-            self[Gap][SNF] = [A,B]
-            sandwich_failures += 1
-        else:
-            sandwich_hits += 1
-
-        ## if SNF._key_func_LLP_palp_native_normal_form.is_in_cache():
-        ##     self._sandwich_cache[S.noninvariant_keys()] = SNF
-        ##     if S is not SNF:
-        ##         self._sandwich_cache[SNF.noninvariant_keys()] = SNF
 
 
 def new_sandwich_factory(m, Delta, extremal, dirname=None):
