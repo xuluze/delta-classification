@@ -243,6 +243,8 @@ class Sandwich:
                 tuple(sorted(tuple(int(x) for x in v) for v in self._B.vertices())))
 
     def __eq_noninvariant__(self, other):
+        if self is other:
+            return True
         return self.noninvariant_keys() == other.noninvariant_keys()
 
     def __eq__(self, other):
@@ -588,8 +590,10 @@ class SandwichFactory(defaultdict):
         if SNF not in self[Gap]:
             self[Gap][SNF] = [A,B]
             sandwich_failures += 1
+            return SNF
         else:
             sandwich_hits += 1
+            return None
 
     def __repr__(self):
         return f'{self.__class__.__name__} with keys {sorted(self)}'
@@ -608,15 +612,15 @@ class SandwichFactory(defaultdict):
         red_sand = reduce_sandwich(newA, B, self._Delta)
         if self._extremal:
             if red_sand.integral_points_count() >= self._cmax:
-                self.append_sandwich(newA, red_sand)
+                yield newA, red_sand
                 npts_blow_up = blow_up_of_A.integral_points_count()
                 if npts_blow_up > self._cmax:
                     cmax = npts_blow_up
             if reduction_of_B.integral_points_count() >= self._cmax:
-                self.append_sandwich(A, reduction_of_B)
+                yield A, reduction_of_B
         else:
-            self.append_sandwich(newA, red_sand)
-            self.append_sandwich(A, reduction_of_B)
+            yield newA, red_sand
+            yield A, reduction_of_B
 
 
 class SandwichFactory_with_diskcache_Index(SandwichFactory):
@@ -663,8 +667,6 @@ def new_sandwich_factory(m, Delta, extremal, dirname=None):
             dirname += '_ext'
         sandwich_factory = SandwichFactory_with_diskcache_Index(m, Delta, extremal, dirname)
 
-    for A,B in prepare_sandwiches(m,Delta):
-        sandwich_factory.append_sandwich(A,B)
     return sandwich_factory
 
 
@@ -677,25 +679,42 @@ def sandwich_factory_statistics(sf):
     logging.info(50*"-")
 
 
-def delta_classification(m, Delta, extremal, dirname=None):
+def delta_classification(m, Delta, extremal, dirname=None, *, order='gap'):
     """
         runs the sandwich factory algorithm and classifies all centrally symmetric m-dimensional lattice polytopes with largest determinant equal to Delta
         extremal is a Boolean parameter determining whether the whole classification is sought [extremal=false], or only the classification of the extremal examples attaining h(Delta,m) [extremal=true]
     """
     sf = new_sandwich_factory(m, Delta, extremal, dirname=dirname)
-    maxGap = max(sf.keys())
 
-    while maxGap > 0:
+    match order:
+        case 'gap':
+            for A,B in prepare_sandwiches(m, Delta):
+                sf.append_sandwich(A, B)
+            maxGap = max(sf.keys())
+            while maxGap > 0:
+                sandwich_factory_statistics(sf)
+                for A, B in sf[maxGap].values():
+                    for newA, newB in sf.branch_sandwich(A, B):
+                        sf.append_sandwich(newA, newB)
+                del sf[maxGap]
+                maxGap = max(sf.keys())
+            sandwich_factory_statistics(sf)
 
-        sandwich_factory_statistics(sf)
+        case 'dfs':
+            stack = [sf.append_sandwich(A, B) for A, B in prepare_sandwiches(m, Delta)]
+            while stack:
+                sandwich = stack.pop()
+                A, B = sf[sandwich.gap()][sandwich]
+                for newA, newB in sf.branch_sandwich(A, B):
+                    if (new_sandwich := sf.append_sandwich(newA, newB)) is not None:
+                        if new_sandwich.gap():
+                            stack.append(new_sandwich)
+                        else:
+                            print(new_sandwich)
+                            sandwich_factory_statistics(sf)
 
-        for A, B in sf[maxGap].values():
-            sf.branch_sandwich(A, B)
-
-        del sf[maxGap]
-        maxGap = max(sf.keys())
-
-    sandwich_factory_statistics(sf)
+        case _:
+            raise ValueError(f'unknown order parameter: {order}')
 
     result = []
     for A,B in sf[0].values():
