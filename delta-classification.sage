@@ -51,6 +51,14 @@ class Sandwich:
         self._A = A
         self._B = B
 
+    def __repr__(self):
+        if self.gap():
+            return f"Sandwich conv({sorted(self._A.vertices_list())}) ⊆ conv({sorted(self._B.vertices_list())}) with gap {self.gap()}"
+        return f"Polytope conv({sorted(self._A.vertices_list())})"
+
+    def plot(self):
+        return self._B.plot(alpha=.3, polygon='yellow') + self._A.plot(alpha=.3, polygon='red')
+
     @cached_method
     def gap(self):
         return self._B.integral_points_count() - self._A.integral_points_count()
