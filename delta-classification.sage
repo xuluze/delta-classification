@@ -627,8 +627,8 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
     r"""
     gap -> SandwichStorage
     """
-    def __init__(self, extremal, dirname):
-        super().__init__(extremal)
+    def __init__(self, m, Delta, extremal, dirname):
+        super().__init__(m, Delta, extremal)
 
         try:
             import diskcache
@@ -639,8 +639,8 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
         self._sandwich_cache = diskcache.Cache(self._dirname + f'_invariants')
 
     def __missing__(self, key):
-        #mapping_factory = make_diskcache_Index_factory(self._dirname + f'_gap{key}')
-        mapping_factory = None  # we are testing only the Cache now
+        mapping_factory = make_diskcache_Index_factory(self._dirname + f'_gap{key}')
+        #mapping_factory = None  # we are testing only the Cache now
         value = SandwichStorage_with_diskcache_Cache(mapping_factory, cache=self._sandwich_cache)
         self[key] = value
         return value
@@ -701,7 +701,30 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap'):
             sandwich_factory_statistics(sf)
 
         case 'dfs':
-            stack = [sf.append_sandwich(A, B) for A, B in prepare_sandwiches(m, Delta)]
+            stack = []
+            for A, B in prepare_sandwiches(m, Delta):
+                if (sandwich := sf.append_sandwich(A, B)) is not None:
+                    stack.append(sandwich)
+            while stack:
+                sandwich = stack.pop()
+                A, B = sf[sandwich.gap()][sandwich]
+                for newA, newB in sf.branch_sandwich(A, B):
+                    if (new_sandwich := sf.append_sandwich(newA, newB)) is not None:
+                        if new_sandwich.gap():
+                            stack.append(new_sandwich)
+                        else:
+                            print(new_sandwich)
+                            sandwich_factory_statistics(sf)
+
+        case 'deque':
+            try:
+                import diskcache
+            except ImportError:
+                raise ImportError('Use !pip install diskcache')
+            stack = diskcache.Deque(directory=dirname + '_deque')
+            for A, B in prepare_sandwiches(m, Delta):
+                if (sandwich := sf.append_sandwich(A, B)) is not None:
+                    stack.append(sandwich)
             while stack:
                 sandwich = stack.pop()
                 A, B = sf[sandwich.gap()][sandwich]
