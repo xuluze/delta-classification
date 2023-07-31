@@ -639,6 +639,7 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
         self._sandwich_cache = diskcache.Cache(self._dirname + f'_invariants')
 
     def __missing__(self, key):
+        print(f"Creating SandwichStorage_with_diskcache_Cache for gap {key}")
         mapping_factory = make_diskcache_Index_factory(self._dirname + f'_gap{key}')
         #mapping_factory = None  # we are testing only the Cache now
         value = SandwichStorage_with_diskcache_Cache(mapping_factory, cache=self._sandwich_cache)
@@ -700,44 +701,44 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap'):
                 maxGap = max(sf.keys())
             sandwich_factory_statistics(sf)
 
-        case 'dfs':
-            stack = []
-            for A, B in prepare_sandwiches(m, Delta):
-                if (sandwich := sf.append_sandwich(A, B)) is not None:
-                    stack.append(sandwich)
-            while stack:
-                sandwich = stack.pop()
-                A, B = sf[sandwich.gap()][sandwich]
-                for newA, newB in sf.branch_sandwich(A, B):
-                    if (new_sandwich := sf.append_sandwich(newA, newB)) is not None:
-                        if new_sandwich.gap():
-                            stack.append(new_sandwich)
-                        else:
-                            print(new_sandwich)
-                            sandwich_factory_statistics(sf)
-
-        case 'deque':
-            try:
-                import diskcache
-            except ImportError:
-                raise ImportError('Use !pip install diskcache')
-            stack = diskcache.Deque(directory=dirname + '_deque')
-            for A, B in prepare_sandwiches(m, Delta):
-                if (sandwich := sf.append_sandwich(A, B)) is not None:
-                    stack.append(sandwich)
-            while stack:
-                sandwich = stack.pop()
-                A, B = sf[sandwich.gap()][sandwich]
-                for newA, newB in sf.branch_sandwich(A, B):
-                    if (new_sandwich := sf.append_sandwich(newA, newB)) is not None:
-                        if new_sandwich.gap():
-                            stack.append(new_sandwich)
-                        else:
-                            print(new_sandwich)
-                            sandwich_factory_statistics(sf)
-
         case _:
-            raise ValueError(f'unknown order parameter: {order}')
+            if dirname:
+                try:
+                    import diskcache
+                except ImportError:
+                    raise ImportError('Use !pip install diskcache')
+                deque = diskcache.Deque(directory=dirname + '_deque')
+            else:
+                deque = []
+
+            print(f'Loaded deque of length {len(deque)}')
+
+            for A, B in prepare_sandwiches(m, Delta):
+                if (sandwich := sf.append_sandwich(A, B)) is not None:
+                    deque.append(sandwich)
+            while deque:
+                match order:
+                    case 'dfs':
+                        sandwich = deque.pop()
+                    case 'bfs':
+                        sandwich = deque.popleft()
+                    case 'random':
+                        with deque.transact():
+                            index = randint(0, len(deque) - 1)
+                            sandwich = deque[index]
+                            deque[index] = None
+                    case _:
+                        raise ValueError(f'unknown order parameter: {order}')
+                if sandwich is None:
+                    continue
+                A, B = sf[sandwich.gap()][sandwich]
+                for newA, newB in sf.branch_sandwich(A, B):
+                    if (new_sandwich := sf.append_sandwich(newA, newB)) is not None:
+                        if new_sandwich.gap():
+                            deque.append(new_sandwich)
+                        else:
+                            print(new_sandwich)
+                            sandwich_factory_statistics(sf)
 
     result = []
     for A,B in sf[0].values():
