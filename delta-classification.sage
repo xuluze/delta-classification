@@ -564,8 +564,14 @@ sandwich_failures = 0
 
 class SandwichFactory(defaultdict):
 
-    def __init__(self):
+    def __init__(self, m, Delta, extremal):
         super().__init__(SandwichStorage)
+        self._m = m
+        self._Delta = Delta
+        self._extremal = extremal
+        if extremal:
+            # set the known lower bound for h(Delta,m) by Lee et al.
+            cmax = m^2 - m + 1 *2*m*Delta
 
     def append_sandwich(self, A, B):
         """
@@ -588,12 +594,38 @@ class SandwichFactory(defaultdict):
     def __repr__(self):
         return f'{self.__class__.__name__} with keys {sorted(self)}'
 
+    def branch_sandwich(self, A, B):
+
+        for v in B.vertices(): # pick a vertex of B which is not in A
+            if v not in A[1]:
+                break
+
+        blow_up_of_A = Polyhedron(list(A[1].vertices()) + [vector(v)] + [-vector(v)])  ## this uses that all points in B are "Delta-ok" for A
+        half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
+        reduction_of_B = Polyhedron([z for z in B.integral_points() if (vector(z) != vector(v) and vector(z) != -vector(v))])
+
+        newA = [half_of_blow_up_of_A, blow_up_of_A]
+        red_sand = reduce_sandwich(newA, B, self._Delta)
+        if self._extremal:
+            if red_sand.integral_points_count() >= self._cmax:
+                self.append_sandwich(newA, red_sand)
+                npts_blow_up = blow_up_of_A.integral_points_count()
+                if npts_blow_up > self._cmax:
+                    cmax = npts_blow_up
+            if reduction_of_B.integral_points_count() >= self._cmax:
+                self.append_sandwich(A, reduction_of_B)
+        else:
+            self.append_sandwich(newA, red_sand)
+            self.append_sandwich(A, reduction_of_B)
+
 
 class SandwichFactory_with_diskcache_Index(SandwichFactory):
     r"""
     gap -> SandwichStorage
     """
-    def __init__(self, dirname):
+    def __init__(self, extremal, dirname):
+        super().__init__(extremal)
+
         try:
             import diskcache
         except ImportError:
@@ -624,12 +656,12 @@ def new_sandwich_factory(m, Delta, extremal, dirname=None):
     #sandwich_factory = defaultdict(Trie)
 
     if dirname is None:
-        sandwich_factory = SandwichFactory()
+        sandwich_factory = SandwichFactory(m, Delta, extremal)
     else:
         dirname += f'_m{m}_Delta{Delta}'
         if extremal:
             dirname += '_ext'
-        sandwich_factory = SandwichFactory_with_diskcache_Index(dirname)
+        sandwich_factory = SandwichFactory_with_diskcache_Index(m, Delta, extremal, dirname)
 
     for A,B in prepare_sandwiches(m,Delta):
         sandwich_factory.append_sandwich(A,B)
@@ -653,37 +685,12 @@ def delta_classification(m, Delta, extremal, dirname=None):
     sf = new_sandwich_factory(m, Delta, extremal, dirname=dirname)
     maxGap = max(sf.keys())
 
-    # set the known lower bound for h(Delta,m) by Lee et al.
-    if (extremal):
-        cmax = m^2 - m + 1 *2*m*Delta
-
     while maxGap > 0:
 
         sandwich_factory_statistics(sf)
-        
+
         for A, B in sf[maxGap].values():
-
-            for v in B.vertices(): # pick a vertex of B which is not in A
-                if v not in A[1]:
-                    break
-
-            blow_up_of_A = Polyhedron(list(A[1].vertices()) + [vector(v)] + [-vector(v)])  ## this uses that all points in B are "Delta-ok" for A
-            half_of_blow_up_of_A = break_symmetry(blow_up_of_A,m)
-            reduction_of_B = Polyhedron([z for z in B.integral_points() if (vector(z) != vector(v) and vector(z) != -vector(v))])
-
-            newA = [half_of_blow_up_of_A,blow_up_of_A]
-            red_sand = reduce_sandwich(newA,B,Delta)
-            if (extremal):
-                if (red_sand.integral_points_count() >= cmax):
-                    sf.append_sandwich(newA, red_sand)
-                    npts_blow_up = blow_up_of_A.integral_points_count()
-                    if (npts_blow_up > cmax):
-                        cmax = npts_blow_up
-                if (reduction_of_B.integral_points_count() >= cmax):
-                    sf.append_sandwich(A, reduction_of_B)
-            else:
-                sf.append_sandwich(newA, red_sand)
-                sf.append_sandwich(A, reduction_of_B)
+            sf.branch_sandwich(A, B)
 
         del sf[maxGap]
         maxGap = max(sf.keys())
