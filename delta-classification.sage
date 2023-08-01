@@ -731,7 +731,11 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
                         raise ValueError(f'unknown order parameter: {order}')
                 if sandwich is None:
                     continue
-                A, B = sf[sandwich.gap()][sandwich]
+                try:
+                    A, B = sf[sandwich.gap()][sandwich]
+                except KeyError:  # race
+                    deque.appendleft(sandwich)
+                    continue
                 for newA, newB in sf.branch_sandwich(A, B):
                     if (new_sandwich := sf.append_sandwich(newA, newB)) is not None:
                         if new_sandwich.gap():
