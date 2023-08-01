@@ -626,6 +626,8 @@ class SandwichFactory(defaultdict):
 class SandwichFactory_with_diskcache_Index(SandwichFactory):
     r"""
     gap -> SandwichStorage
+
+    On macOS, use 'ulimit -n 2048' before starting Sage to avoid running into 'Too many open files'
     """
     def __init__(self, m, Delta, extremal, dirname):
         super().__init__(m, Delta, extremal)
@@ -639,10 +641,10 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
         self._sandwich_cache = diskcache.Cache(self._dirname + f'_invariants')
 
     def __missing__(self, key):
-        print(f"Creating SandwichStorage_with_diskcache_Cache for gap {key}")
         mapping_factory = make_diskcache_Index_factory(self._dirname + f'_gap{key}')
         #mapping_factory = None  # we are testing only the Cache now
         value = SandwichStorage_with_diskcache_Cache(mapping_factory, cache=self._sandwich_cache)
+        print(f"Creating SandwichStorage_with_diskcache_Cache for gap {key}; size = {len(value)}")
         self[key] = value
         return value
 
@@ -680,7 +682,7 @@ def sandwich_factory_statistics(sf):
     logging.info(50*"-")
 
 
-def delta_classification(m, Delta, extremal, dirname=None, *, order='gap'):
+def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', iterations=None):
     """
         runs the sandwich factory algorithm and classifies all centrally symmetric m-dimensional lattice polytopes with largest determinant equal to Delta
         extremal is a Boolean parameter determining whether the whole classification is sought [extremal=false], or only the classification of the extremal examples attaining h(Delta,m) [extremal=true]
@@ -716,7 +718,11 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap'):
             for A, B in prepare_sandwiches(m, Delta):
                 if (sandwich := sf.append_sandwich(A, B)) is not None:
                     deque.append(sandwich)
+
+            iteration = 0
+
             while deque:
+                iteration += 1
                 match order:
                     case 'dfs':
                         sandwich = deque.pop()
@@ -738,7 +744,12 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap'):
                             deque.append(new_sandwich)
                         else:
                             print(new_sandwich)
-                            sandwich_factory_statistics(sf)
+
+                if iteration % 2000 == 0:
+                    sandwich_factory_statistics(sf)  # very expensive when using diskcache.Deque
+
+                if iterations is not None and iteration > iterations:
+                    break
 
     result = []
     for A,B in sf[0].values():
