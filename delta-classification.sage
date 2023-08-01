@@ -574,6 +574,7 @@ class SandwichFactory(defaultdict):
         if extremal:
             # set the known lower bound for h(Delta,m) by Lee et al.
             cmax = m^2 - m + 1 *2*m*Delta
+        self._deque = []
 
     def append_sandwich(self, A, B):
         """
@@ -640,6 +641,9 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
         self._dirname = dirname
         self._sandwich_cache = diskcache.Cache(self._dirname + f'_invariants')
 
+        self._deque = diskcache.Deque(directory=dirname + '_deque')
+        print(f'Loaded deque of length {len(self._deque)}')
+
     def __missing__(self, key):
         mapping_factory = make_diskcache_Index_factory(self._dirname + f'_gap{key}')
         #mapping_factory = None  # we are testing only the Cache now
@@ -704,17 +708,7 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
             sandwich_factory_statistics(sf)
 
         case _:
-            if dirname:
-                try:
-                    import diskcache
-                except ImportError:
-                    raise ImportError('Use !pip install diskcache')
-                deque = diskcache.Deque(directory=dirname + '_deque')
-            else:
-                deque = []
-
-            print(f'Loaded deque of length {len(deque)}')
-
+            deque = sf._deque
             for A, B in prepare_sandwiches(m, Delta):
                 if (sandwich := sf.append_sandwich(A, B)) is not None:
                     deque.append(sandwich)
