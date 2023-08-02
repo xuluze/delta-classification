@@ -602,7 +602,10 @@ class SandwichFactory(defaultdict):
     def __repr__(self):
         return f'{self.__class__.__name__} with keys {sorted(self)}'
 
-    def branch_sandwich(self, A, B):
+    def branch_sandwich(self, sandwich):
+
+        A = (sandwich._halfA, sandwich._A)
+        B = sandwich._B
 
         for v in B.vertices(): # pick a vertex of B which is not in A
             if v not in A[1]:
@@ -610,7 +613,8 @@ class SandwichFactory(defaultdict):
 
         blow_up_of_A = Polyhedron(list(A[1].vertices()) + [vector(v)] + [-vector(v)])  ## this uses that all points in B are "Delta-ok" for A
         half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
-        reduction_of_B = Polyhedron([z for z in B.integral_points() if (vector(z) != vector(v) and vector(z) != -vector(v))])
+        reduction_of_B = Polyhedron([z for z in B.integral_points()
+                                     if vector(z) != vector(v) and vector(z) != -vector(v)])
 
         newA = [half_of_blow_up_of_A, blow_up_of_A]
         red_sand = reduce_sandwich(newA, B, self._Delta)
@@ -703,9 +707,9 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
             maxGap = max(sf.keys())
             while maxGap > 0:
                 sandwich_factory_statistics(sf)
-                for A, B in sf[maxGap].values():
-                    for sandwich in sf.branch_sandwich(A, B):
-                        sf.append_sandwich(sandwich)
+                for sandwich in sf[maxGap]:
+                    for new_sandwich in sf.branch_sandwich(sandwich):
+                        sf.append_sandwich(new_sandwich)
                 del sf[maxGap]
                 maxGap = max(sf.keys())
             sandwich_factory_statistics(sf)
@@ -734,12 +738,7 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
                         raise ValueError(f'unknown order parameter: {order}')
                 if sandwich is None:
                     continue
-                try:
-                    A, B = sf[sandwich.gap()][sandwich]
-                except KeyError:  # race
-                    deque.appendleft(sandwich)
-                    continue
-                for new_sandwich in sf.branch_sandwich(A, B):
+                for new_sandwich in sf.branch_sandwich(sandwich):
                     if sf.append_sandwich(new_sandwich) is not None:
                         if new_sandwich.gap():
                             deque.append(new_sandwich)
