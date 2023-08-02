@@ -48,11 +48,9 @@ class Sandwich:
         if isinstance(A, (tuple, list)):
             # Assume it's [halfA, A] where A is a Polyhedron
             self._A = A[1]
-            self._halfA = A
+            self._halfA = A[0]
         else:
             self._A = A
-            m = A.ncols()
-            self._halfA = break_symmetry(A, m)
 
         if isinstance(B, (tuple, list)):
             self._B_integral_points = B
@@ -66,6 +64,12 @@ class Sandwich:
 
     def plot(self):
         return self._B.plot(alpha=.3, polygon='yellow') + self._A.plot(alpha=.3, polygon='red')
+
+    @lazy_attribute
+    def _halfA(self):
+        A = self._A
+        m = A.ambient_dim()
+        return break_symmetry(A, m)
 
     @cached_method
     def A_integral_points(self):
