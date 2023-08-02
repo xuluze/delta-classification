@@ -47,8 +47,12 @@ class Sandwich:
     def __init__(self, A, B):
         if isinstance(A, (tuple, list)):
             # Assume it's [halfA, A] where A is a Polyhedron
-            A = A[1]
-        self._A = A
+            self._A = A[1]
+            self._halfA = A
+        else:
+            self._A = A
+            m = A.ncols()
+            self._halfA = break_symmetry(A, m)
         self._B = B
 
     def __repr__(self):
@@ -488,7 +492,7 @@ def prepare_sandwiches(m,Delta):
 
         # B may contain some integral points that are Delta-too-large with respect to A, and so we do:
         B = reduce_sandwich([halfA,A],B,Delta)
-        yield [halfA,A],B
+        yield Sandwich([halfA,A], B)
 
 
 def break_symmetry(A,m):
@@ -576,22 +580,21 @@ class SandwichFactory(defaultdict):
             cmax = m^2 - m + 1 *2*m*Delta
         self._deque = []
 
-    def append_sandwich(self, A, B):
+    def append_sandwich(self, sandwich):
         """
             If no affine unimodular image of the sandwich (A,B) is in the sandwich factory self,
             the sandwich (A,B) is appended to self.
         """
         global sandwich_hits, sandwich_failures
 
-        SNF = Sandwich(A,B)
-        Gap = SNF.gap()
+        Gap = sandwich.gap()
 
-        # crucial that SNF is a LatticePolytope (or something else with a good hash),
+        # crucial that sandwich is a LatticePolytope (or something else with a good hash),
         # not a Polyhedron (which has a poor hash)
-        if SNF not in self[Gap]:
-            self[Gap][SNF] = [A,B]
+        if sandwich not in self[Gap]:
+            self[Gap][sandwich] = [(sandwich._halfA, sandwich._A), sandwich._B]
             sandwich_failures += 1
-            return SNF
+            return sandwich
         else:
             sandwich_hits += 1
             return None
@@ -613,15 +616,15 @@ class SandwichFactory(defaultdict):
         red_sand = reduce_sandwich(newA, B, self._Delta)
         if self._extremal:
             if red_sand.integral_points_count() >= self._cmax:
-                yield newA, red_sand
+                yield Sandwich(newA, red_sand)
                 npts_blow_up = blow_up_of_A.integral_points_count()
                 if npts_blow_up > self._cmax:
                     cmax = npts_blow_up
             if reduction_of_B.integral_points_count() >= self._cmax:
-                yield A, reduction_of_B
+                yield Sandwich(A, reduction_of_B)
         else:
-            yield newA, red_sand
-            yield A, reduction_of_B
+            yield Sandwich(newA, red_sand)
+            yield Sandwich(A, reduction_of_B)
 
 
 class SandwichFactory_with_diskcache_Index(SandwichFactory):
@@ -695,22 +698,22 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
 
     match order:
         case 'gap':
-            for A,B in prepare_sandwiches(m, Delta):
-                sf.append_sandwich(A, B)
+            for sandwich in prepare_sandwiches(m, Delta):
+                sf.append_sandwich(sandwich)
             maxGap = max(sf.keys())
             while maxGap > 0:
                 sandwich_factory_statistics(sf)
                 for A, B in sf[maxGap].values():
-                    for newA, newB in sf.branch_sandwich(A, B):
-                        sf.append_sandwich(newA, newB)
+                    for sandwich in sf.branch_sandwich(A, B):
+                        sf.append_sandwich(sandwich)
                 del sf[maxGap]
                 maxGap = max(sf.keys())
             sandwich_factory_statistics(sf)
 
         case _:
             deque = sf._deque
-            for A, B in prepare_sandwiches(m, Delta):
-                if (sandwich := sf.append_sandwich(A, B)) is not None:
+            for sandwich in prepare_sandwiches(m, Delta):
+                if sf.append_sandwich(sandwich) is not None:
                     deque.append(sandwich)
 
             iteration = 0
@@ -736,8 +739,8 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
                 except KeyError:  # race
                     deque.appendleft(sandwich)
                     continue
-                for newA, newB in sf.branch_sandwich(A, B):
-                    if (new_sandwich := sf.append_sandwich(newA, newB)) is not None:
+                for new_sandwich in sf.branch_sandwich(A, B):
+                    if sf.append_sandwich(new_sandwich) is not None:
                         if new_sandwich.gap():
                             deque.append(new_sandwich)
                         else:
