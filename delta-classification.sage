@@ -53,7 +53,11 @@ class Sandwich:
             self._A = A
             m = A.ncols()
             self._halfA = break_symmetry(A, m)
-        self._B = B
+
+        if isinstance(B, (tuple, list)):
+            self._B_integral_points = B
+        else:
+            self._B = B
 
     def __repr__(self):
         if self.gap():
@@ -64,8 +68,29 @@ class Sandwich:
         return self._B.plot(alpha=.3, polygon='yellow') + self._A.plot(alpha=.3, polygon='red')
 
     @cached_method
+    def A_integral_points(self):
+        return self._A.integral_points()
+
+    def A_integral_points_count(self):
+        return len(self.A_integral_points())
+
+    @lazy_attribute
+    def _B_integral_points(self):
+        return self._B.integral_points()
+
+    @lazy_attribute
+    def _B(self):
+        return Polyhedron(self._B_integral_points)
+
+    def B_integral_points(self):
+        return self._B_integral_points
+
+    def B_integral_points_count(self):
+        return len(self._B.integral_points())
+
+    @cached_method
     def gap(self):
-        return self._B.integral_points_count() - self._A.integral_points_count()
+        return self.B_integral_points_count() - self.A_integral_points_count()
 
     @cached_method
     def _key_func_dimensions(self):
@@ -491,8 +516,8 @@ def prepare_sandwiches(m,Delta):
         B = polytopes.parallelotope(mA.transpose())
 
         # B may contain some integral points that are Delta-too-large with respect to A, and so we do:
-        B = reduce_sandwich([halfA,A],B,Delta)
-        yield Sandwich([halfA,A], B)
+        sandwich = Sandwich([halfA,A], B)
+        yield reduce_sandwich([halfA,A], sandwich, Delta)
 
 
 def break_symmetry(A,m):
@@ -519,7 +544,7 @@ def is_extendable(S,v,Delta):
     return true
 
 
-def reduce_sandwich(A,B,Delta):
+def reduce_sandwich(newA, sandwich, Delta):
     """
         For a given sandwich (A,B) and a value of Delta
         the function returns a polytope
@@ -529,21 +554,21 @@ def reduce_sandwich(A,B,Delta):
     to_be_removed = set()
     to_be_kept = set()
 
-    Z = [vector(z, immutable=True) for z in B.integral_points()]
+    Z = [vector(z, immutable=True) for z in sandwich.B_integral_points()]
     for v in Z:
-        if v in A[1]:
+        if v in newA[1]:
             continue
         if v in to_be_removed or v in to_be_kept:  ## this just avoids considering -w in case that w was considered already before
             continue
         mv = -v
         mv.set_immutable()
-        if is_extendable(A[0],v,Delta):
+        if is_extendable(newA[0],v,Delta):
             to_be_kept.add(v)
             to_be_kept.add(mv)
         else:
             to_be_removed.add(v)
             to_be_removed.add(mv)
-    return Polyhedron([z for z in Z if z not in to_be_removed])
+    return Sandwich(newA, [z for z in Z if z not in to_be_removed])
 
 
 def layered_lattice_polytope_from_sandwich(A,B):
@@ -577,7 +602,7 @@ class SandwichFactory(defaultdict):
         self._extremal = extremal
         if extremal:
             # set the known lower bound for h(Delta,m) by Lee et al.
-            cmax = m^2 - m + 1 *2*m*Delta
+            self._cmax = m^2 - m + 1 *2*m*Delta
         self._deque = []
 
     def append_sandwich(self, sandwich):
@@ -613,22 +638,23 @@ class SandwichFactory(defaultdict):
 
         blow_up_of_A = Polyhedron(list(A[1].vertices()) + [vector(v)] + [-vector(v)])  ## this uses that all points in B are "Delta-ok" for A
         half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
-        reduction_of_B = Polyhedron([z for z in B.integral_points()
-                                     if vector(z) != vector(v) and vector(z) != -vector(v)])
+        reduction_of_B = [z for z in sandwich.B_integral_points()
+                          if vector(z) != vector(v) and vector(z) != -vector(v)]
 
         newA = [half_of_blow_up_of_A, blow_up_of_A]
-        red_sand = reduce_sandwich(newA, B, self._Delta)
+        sandwich1 = reduce_sandwich(newA, sandwich, self._Delta)
+        sandwich2 = Sandwich(A, reduction_of_B)
         if self._extremal:
-            if red_sand.integral_points_count() >= self._cmax:
-                yield Sandwich(newA, red_sand)
-                npts_blow_up = blow_up_of_A.integral_points_count()
+            if sandwich1.B_integral_points_count() >= self._cmax:
+                yield sandwich1
+                npts_blow_up = sandwich1.A_integral_points_count()
                 if npts_blow_up > self._cmax:
-                    cmax = npts_blow_up
-            if reduction_of_B.integral_points_count() >= self._cmax:
-                yield Sandwich(A, reduction_of_B)
+                    self._cmax = npts_blow_up
+            if sandwich2.B_integral_points_count() >= self._cmax:
+                yield sandwich2
         else:
-            yield Sandwich(newA, red_sand)
-            yield Sandwich(A, reduction_of_B)
+            yield sandwich1
+            yield sandwich2
 
 
 class SandwichFactory_with_diskcache_Index(SandwichFactory):
