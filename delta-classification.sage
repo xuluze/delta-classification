@@ -377,12 +377,14 @@ class SandwichStorage:
             # is too expensive. When the subtrie has <= THRESHOLD candidates, it may be faster to invert:
             # loop through all candidates and do the fast non-invariant check.
             if (cost := self._key_cost(key, len(key_prefix))) > 1:
-                if len(next_mapping := self._key_prefix_to_mapping(key_prefix + (None,))) <= cost:
-                    for same_prefix, item in next_mapping.items():
+                next_mapping = self._key_prefix_to_mapping(key_prefix + (None,))
+                if not isinstance(next_mapping, dict) or len(next_mapping) <= cost:  # len is expensive for diskcache.Index
+                    for i, (same_prefix, item) in enumerate(next_mapping.items()):
                         if item != 'not_unique':
                             if item[0].__eq_noninvariant__(key):
                                 return key_prefix + (self._key_item(item, 0),), item, True
-
+                        if i >= cost:
+                            break
             try:
                 key_prefix = key_prefix + (self._key_item(key, len(key_prefix)),)
             except IndexError:
@@ -685,7 +687,7 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
         mapping_factory = make_diskcache_Index_factory(self._dirname + f'_gap{key}')
         #mapping_factory = None  # we are testing only the Cache now
         value = SandwichStorage_with_diskcache_Cache(mapping_factory, cache=self._sandwich_cache)
-        print(f"Creating SandwichStorage_with_diskcache_Cache for gap {key}; size = {len(value)}")
+        print(f"Creating SandwichStorage_with_diskcache_Cache for gap {key}")  # ; size = {len(value)}")  -- expensive to take len()
         self[key] = value
         return value
 
