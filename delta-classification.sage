@@ -13,7 +13,7 @@ import sys
 
 from collections import defaultdict
 
-from sage.geometry.lattice_polytope import LatticePolytope, _palp_canonical_order
+from sage.geometry.palp_normal_form import _palp_PM_max, _palp_canonical_order
 from sage.misc.lazy_attribute import lazy_attribute
 
 # Using the logging package one can conveniently turn off and on the auxiliary messages
@@ -112,16 +112,8 @@ class Sandwich:
         return (self._A.n_facets(), self._A.n_vertices(), self._B.n_facets(), self._B.n_vertices())
 
     @lazy_attribute
-    def _A_LP(self):
-        return LatticePolytope(self._A.vertices_list(), compute_vertices=False)
-
-    @lazy_attribute
-    def _B_LP(self):
-        return LatticePolytope(self._B.vertices_list(), compute_vertices=False)
-
-    @lazy_attribute
     def _B_vertex_facet_pairing_matrix(self):
-        return self._B_LP.vertex_facet_pairing_matrix()
+        return self._B.slack_matrix().transpose()
 
     @cached_method
     def _key_func_B_partitions(self):
@@ -142,7 +134,7 @@ class Sandwich:
 
     @lazy_attribute
     def _A_vertex_facet_pairing_matrix(self):
-        return self._A_LP.vertex_facet_pairing_matrix()
+        return self._A.slack_matrix().transpose()
 
     @staticmethod
     def _row_sums(matrix):
@@ -192,10 +184,15 @@ class Sandwich:
 
     @lazy_attribute
     def _A_vertex_B_facet_pairing_matrix(self):
-        V = self._A_LP.vertices()
-        nv = self._A_LP.nvertices()
-        PM = matrix(ZZ, [n * V + vector(ZZ, [c] * nv)
-                         for n, c in zip(self._B_LP.facet_normals(), self._B_LP.facet_constants())])
+
+        Vrep_matrix = matrix(ZZ, self._A.Vrepresentation())
+        Hrep_matrix = matrix(ZZ, self._B.Hrepresentation())
+
+        # Getting homogeneous coordinates of the Vrepresentation.
+        hom_helper = matrix(ZZ, [1 if v.is_vertex() else 0 for v in self._A.Vrepresentation()])
+        hom_Vrep = hom_helper.stack(Vrep_matrix.transpose())
+
+        PM = Hrep_matrix * hom_Vrep
         PM.set_immutable()
         return PM
 
@@ -218,15 +215,15 @@ class Sandwich:
 
     @lazy_attribute
     def _LLP(self):
-        return layered_lattice_polytope_from_sandwich((None, self._A), self._B)
+        return layered_polytope_from_sandwich((None, self._A), self._B)
 
     @lazy_attribute
     def _LLP_vertex_facet_pairing_matrix(self):
-        return self._LLP.vertex_facet_pairing_matrix()
+        return self._LLP.slack_matrix().transpose()
 
     @lazy_attribute
     def _LLP_PM_max_and_permutations(self):
-        PM_max, permutations = self._LLP._palp_PM_max(check=True)
+        PM_max, permutations = _palp_PM_max(self._LLP_vertex_facet_pairing_matrix, check=True)
         PM_max.set_immutable()
         return PM_max, permutations
 
@@ -243,10 +240,8 @@ class Sandwich:
 
     @cached_method(do_pickle=True)
     def _key_func_LLP_palp_native_normal_form(self):
-        #breakpoint()
-        #return self._LLP.normal_form(algorithm='palp_native')
         PM_max, permutations = self._LLP_PM_max_and_permutations
-        return _palp_canonical_order(self._LLP.vertices(), PM_max, permutations)[0]
+        return tuple(_palp_canonical_order(self._LLP.vertices(), PM_max, permutations)[0])
 
     def key_funcs(self):
         return (self._key_func_dimensions,
@@ -283,7 +278,7 @@ class Sandwich:
 
     @cached_method
     def noninvariant_keys(self):
-        return (tuple(sorted(tuple(int(x) for x in v) for v in self._A.vertices())),
+        return (self._halfA,
                 tuple(sorted(tuple(int(x) for x in v) for v in self._B.vertices())))
 
     def __eq_noninvariant__(self, other):
@@ -544,10 +539,10 @@ def break_symmetry(A,m):
     """
     halfA = []
     for z in A.vertices():
-        l = vector(z)
-        if next((x for x in l if x != 0), None) > 0:
+        if next((x for x in z if x != 0), None) > 0:
+            l = tuple(int(x) for x in z)
             halfA.append(l)
-    return halfA
+    return tuple(sorted(halfA))
 
 def is_extendable(S,v,Delta):
     """
@@ -592,7 +587,7 @@ def reduce_sandwich(newA, sandwich, Delta):
         return Sandwich(newA, sandwich._B, B_integral_points=Z)
 
 
-def layered_lattice_polytope_from_sandwich(A,B):
+def layered_polytope_from_sandwich(A,B):
     """ 3*B is embedded into height 0, two copies of 3*A are embedded into heights 1 and -1.
         Then, one generates a polytope based on these three layers at heights -1,0 and 1
         Note: If A and B are centrally symmetric, then the resulting polytope is centrally symmetric as well.
@@ -600,7 +595,7 @@ def layered_lattice_polytope_from_sandwich(A,B):
     middleLayer = [tuple(3*vector(v))+(0,) for v in B.vertices()]
     upperLayer = [tuple(3*vector(v))+(1,) for v in A[1].vertices()]
     lowerLayer = [tuple(3*vector(v))+(-1,) for v in A[1].vertices()]
-    return LatticePolytope(middleLayer+upperLayer+lowerLayer)
+    return Polyhedron(middleLayer+upperLayer+lowerLayer)
 
 
 # Sandwich factory is used to store sandwiches up to affine unimodular transformations.
