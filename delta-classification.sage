@@ -1,3 +1,5 @@
+# needs https://github.com/sagemath/sage/pull/36031
+
 #########################################################################################################
 # the code below is an adaptation of the code for mixed volume classification by Christopher Borger
 # https://github.com/christopherborger/mixed_volume_classification/blob/master/volume_classification.sage
@@ -81,7 +83,7 @@ class Sandwich:
         return self._A.integral_points()
 
     def A_integral_points(self):
-        return self._A.integral_points()
+        return self._A_integral_points
 
     def A_integral_points_count(self):
         return len(self.A_integral_points())
