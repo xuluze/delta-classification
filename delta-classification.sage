@@ -44,7 +44,7 @@ class Sandwich:
         sage: list(S)
 
     """
-    def __init__(self, A, B):
+    def __init__(self, A, B, *, B_integral_points=None):
         if isinstance(A, (tuple, list)):
             # Assume it's [halfA, A] where A is a Polyhedron
             self._A = A[1]
@@ -52,7 +52,9 @@ class Sandwich:
         else:
             self._A = A
 
-        if isinstance(B, (tuple, list)):
+        if B_integral_points is not None:
+            self._B_integral_points = B_integral_points
+        elif isinstance(B, (tuple, list)):
             self._B_integral_points = B
         else:
             self._B = B
@@ -87,6 +89,9 @@ class Sandwich:
         return Polyhedron(self._B_integral_points)
 
     def B_integral_points(self):
+        r"""
+        Return a tuple of immutable vectors
+        """
         return self._B_integral_points
 
     def B_integral_points_count(self):
@@ -560,7 +565,7 @@ def reduce_sandwich(newA, sandwich, Delta):
     to_be_removed = set()
     to_be_kept = set()
 
-    Z = [vector(z, immutable=True) for z in sandwich.B_integral_points()]
+    Z = sandwich.B_integral_points()
     for v in Z:
         if v in newA[1]:
             continue
@@ -574,7 +579,11 @@ def reduce_sandwich(newA, sandwich, Delta):
         else:
             to_be_removed.add(v)
             to_be_removed.add(mv)
-    return Sandwich(newA, [z for z in Z if z not in to_be_removed])
+    if to_be_removed:
+        newB = [z for z in Z if z not in to_be_removed]
+        return Sandwich(newA, newB)
+    else:
+        return Sandwich(newA, sandwich._B, B_integral_points=Z)
 
 
 def layered_lattice_polytope_from_sandwich(A,B):
