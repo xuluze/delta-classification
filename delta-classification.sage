@@ -44,13 +44,16 @@ class Sandwich:
         sage: list(S)
 
     """
-    def __init__(self, A, B, *, B_integral_points=None):
+    def __init__(self, A, B, *, A_integral_points=None, B_integral_points=None):
         if isinstance(A, (tuple, list)):
             # Assume it's [halfA, A] where A is a Polyhedron
             self._A = A[1]
             self._halfA = A[0]
         else:
             self._A = A
+
+        if A_integral_points is not None:
+            self._A_integral_points = A_integral_points
 
         if B_integral_points is not None:
             self._B_integral_points = B_integral_points
@@ -73,7 +76,10 @@ class Sandwich:
         m = A.ambient_dim()
         return break_symmetry(A, m)
 
-    @cached_method
+    @lazy_attribute
+    def _A_integral_points(self):
+        return self._A.integral_points()
+
     def A_integral_points(self):
         return self._A.integral_points()
 
@@ -107,11 +113,11 @@ class Sandwich:
 
     @lazy_attribute
     def _A_LP(self):
-        return LatticePolytope(self._A.vertices_list())
+        return LatticePolytope(self._A.vertices_list(), compute_vertices=False)
 
     @lazy_attribute
     def _B_LP(self):
-        return LatticePolytope(self._B.vertices_list())
+        return LatticePolytope(self._B.vertices_list(), compute_vertices=False)
 
     @lazy_attribute
     def _B_vertex_facet_pairing_matrix(self):
@@ -580,7 +586,7 @@ def reduce_sandwich(newA, sandwich, Delta):
             to_be_removed.add(v)
             to_be_removed.add(mv)
     if to_be_removed:
-        newB = [z for z in Z if z not in to_be_removed]
+        newB = tuple(z for z in Z if z not in to_be_removed)
         return Sandwich(newA, newB)
     else:
         return Sandwich(newA, sandwich._B, B_integral_points=Z)
@@ -651,14 +657,16 @@ class SandwichFactory(defaultdict):
             if v not in A[1]:
                 break
 
-        blow_up_of_A = Polyhedron(list(A[1].vertices()) + [vector(v)] + [-vector(v)])  ## this uses that all points in B are "Delta-ok" for A
+        v = vector(v, immutable=True)
+        mv = -v
+        blow_up_of_A = Polyhedron(list(A[1].vertices()) + [v, mv])  ## this uses that all points in B are "Delta-ok" for A
         half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
-        reduction_of_B = [z for z in sandwich.B_integral_points()
-                          if vector(z) != vector(v) and vector(z) != -vector(v)]
+        reduction_of_B = tuple(z for z in sandwich.B_integral_points()
+                               if z != v and z != mv)
 
         newA = [half_of_blow_up_of_A, blow_up_of_A]
         sandwich1 = reduce_sandwich(newA, sandwich, self._Delta)
-        sandwich2 = Sandwich(A, reduction_of_B)
+        sandwich2 = Sandwich(A, reduction_of_B, A_integral_points=sandwich.A_integral_points())
         if self._extremal:
             if sandwich1.B_integral_points_count() >= self._cmax:
                 yield sandwich1
