@@ -16,6 +16,7 @@ import sys
 from collections import defaultdict
 
 from sage.geometry.palp_normal_form import _palp_PM_max, _palp_canonical_order
+from sage.geometry.polyhedron.parent import Polyhedra
 from sage.misc.lazy_attribute import lazy_attribute
 
 # Using the logging package one can conveniently turn off and on the auxiliary messages
@@ -64,6 +65,9 @@ class Sandwich:
         else:
             self._B = B
 
+    def polyhedra_parent(self):
+        return self._A.parent()
+
     def __repr__(self):
         if self.gap():
             return f"Sandwich conv({sorted(self._A.vertices_list())}) ⊆ conv({sorted(self._B.vertices_list())}) with gap {self.gap()}"
@@ -94,7 +98,7 @@ class Sandwich:
 
     @lazy_attribute
     def _B(self):
-        return Polyhedron(self._B_integral_points)
+        return self.polyhedra_parent()([self._B_integral_points, [], []], None)
 
     def B_integral_points(self):
         r"""
@@ -613,7 +617,7 @@ sandwich_failures = 0
 
 class SandwichFactory(defaultdict):
 
-    def __init__(self, m, Delta, extremal):
+    def __init__(self, m, Delta, extremal, polyhedra_backend='ppl'):
         super().__init__(SandwichStorage)
         self._m = m
         self._Delta = Delta
@@ -622,6 +626,7 @@ class SandwichFactory(defaultdict):
             # set the known lower bound for h(Delta,m) by Lee et al.
             self._cmax = m^2 - m + 1 *2*m*Delta
         self._deque = []
+        self._polyhedra_parent = Polyhedra(ZZ, m, backend=polyhedra_backend)
 
     def append_sandwich(self, sandwich):
         """
@@ -656,7 +661,9 @@ class SandwichFactory(defaultdict):
 
         v = vector(v, immutable=True)
         mv = -v
-        blow_up_of_A = Polyhedron(list(A[1].vertices()) + [v, mv])  ## this uses that all points in B are "Delta-ok" for A
+        blow_up_of_A = self._polyhedra_parent([list(A[1].vertices()) + [v, mv], [], []],
+                                              None,
+                                              convert=True)  ## this uses that all points in B are "Delta-ok" for A
         half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
         reduction_of_B = tuple(z for z in sandwich.B_integral_points()
                                if z != v and z != mv)
@@ -683,8 +690,8 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
 
     On macOS, use 'ulimit -n 2048' before starting Sage to avoid running into 'Too many open files'
     """
-    def __init__(self, m, Delta, extremal, dirname):
-        super().__init__(m, Delta, extremal)
+    def __init__(self, m, Delta, extremal, dirname, **kwds):
+        super().__init__(m, Delta, extremal, **kwds)
 
         try:
             import diskcache
@@ -709,7 +716,7 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
         return f'{self.__class__.__name__}({self._dirname!r}) with keys {sorted(self)}'
 
 
-def new_sandwich_factory(m, Delta, extremal, dirname=None):
+def new_sandwich_factory(m, Delta, extremal, dirname=None, **kwds):
 
     # Using https://github.com/mina86/pygtrie (https://pygtrie.readthedocs.io/en/latest/#pygtrie.Trie)
     # seemed promising, but unfortunately it always eagerly uses the whole key
@@ -720,12 +727,12 @@ def new_sandwich_factory(m, Delta, extremal, dirname=None):
     #sandwich_factory = defaultdict(Trie)
 
     if dirname is None:
-        sandwich_factory = SandwichFactory(m, Delta, extremal)
+        sandwich_factory = SandwichFactory(m, Delta, extremal, **kwds)
     else:
         dirname += f'_m{m}_Delta{Delta}'
         if extremal:
             dirname += '_ext'
-        sandwich_factory = SandwichFactory_with_diskcache_Index(m, Delta, extremal, dirname)
+        sandwich_factory = SandwichFactory_with_diskcache_Index(m, Delta, extremal, dirname, **kwds)
 
     return sandwich_factory
 
@@ -739,12 +746,14 @@ def sandwich_factory_statistics(sf):
     logging.info(50*"-")
 
 
-def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', iterations=None):
+def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', iterations=None,
+                         polyhedra_backend='ppl'):
     """
         runs the sandwich factory algorithm and classifies all centrally symmetric m-dimensional lattice polytopes with largest determinant equal to Delta
         extremal is a Boolean parameter determining whether the whole classification is sought [extremal=false], or only the classification of the extremal examples attaining h(Delta,m) [extremal=true]
     """
-    sf = new_sandwich_factory(m, Delta, extremal, dirname=dirname)
+    sf = new_sandwich_factory(m, Delta, extremal, dirname=dirname,
+                              polyhedra_backend=polyhedra_backend)
 
     match order:
         case 'gap':
