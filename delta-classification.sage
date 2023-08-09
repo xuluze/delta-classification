@@ -250,6 +250,9 @@ class Sandwich:
         return tuple(_palp_canonical_order(self._LLP.vertices(), PM_max, permutations)[0])
 
     def key_funcs(self):
+        if self.gap():
+            return (self._key_func_dimensions,
+                    self._key_func_A_vertex_B_facet_partitions)
         return (self._key_func_dimensions,
                 #self._key_func_A_partitions,
                 #self._key_func_B_partitions,
