@@ -513,7 +513,7 @@ class SandwichStorage_with_diskcache_Cache(SandwichStorage):
         return key[index]
 
 
-def prepare_sandwiches(m,Delta):
+def prepare_sandwiches(m, Delta, polyhedra_backend='ppl'):
     if Delta == 2:
         HNFs = []
         for nonzeros in range(m):
@@ -527,11 +527,11 @@ def prepare_sandwiches(m,Delta):
         # first, we generate A and halfA out of basisA
         mbA = matrix(basisA)
         mA = mbA.augment(-mbA)
-        A = Polyhedron(mA.transpose())
+        A = Polyhedron(mA.transpose(), backend=polyhedra_backend)
         halfA = break_symmetry(A,m)
 
         # second, the outer container B is the centrally symmetric parallelotope spanned by the vectors in basisA
-        B = polytopes.parallelotope(mA.transpose())
+        B = polytopes.parallelotope(mA.transpose(), backend=polyhedra_backend)
 
         # B may contain some integral points that are Delta-too-large with respect to A, and so we do:
         sandwich = Sandwich([halfA,A], B)
@@ -601,7 +601,7 @@ def layered_polytope_from_sandwich(A,B):
     middleLayer = [tuple(3*vector(v))+(0,) for v in B.vertices()]
     upperLayer = [tuple(3*vector(v))+(1,) for v in A[1].vertices()]
     lowerLayer = [tuple(3*vector(v))+(-1,) for v in A[1].vertices()]
-    return Polyhedron(middleLayer+upperLayer+lowerLayer)
+    return Polyhedron(middleLayer+upperLayer+lowerLayer, backend=B.backend())
 
 
 # Sandwich factory is used to store sandwiches up to affine unimodular transformations.
@@ -757,7 +757,7 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
 
     match order:
         case 'gap':
-            for sandwich in prepare_sandwiches(m, Delta):
+            for sandwich in prepare_sandwiches(m, Delta, polyhedra_backend=polyhedra_backend):
                 sf.append_sandwich(sandwich)
             maxGap = max(sf.keys())
             while maxGap > 0:
@@ -771,7 +771,7 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
 
         case _:
             deque = sf._deque
-            for sandwich in prepare_sandwiches(m, Delta):
+            for sandwich in prepare_sandwiches(m, Delta, polyhedra_backend=polyhedra_backend):
                 if sf.append_sandwich(sandwich) is not None:
                     deque.append(sandwich)
 
