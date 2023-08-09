@@ -107,7 +107,7 @@ class Sandwich:
         return self._B_integral_points
 
     def B_integral_points_count(self):
-        return len(self._B.integral_points())
+        return len(self.B_integral_points())
 
     @cached_method
     def gap(self):
