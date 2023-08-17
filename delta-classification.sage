@@ -245,6 +245,10 @@ class Sandwich:
         return PNF
 
     @cached_method(do_pickle=True)
+    def _key_func_A_palp_native_normal_form(self):
+        return tuple(self._A.normal_form())
+
+    @cached_method(do_pickle=True)
     def _key_func_LLP_palp_native_normal_form(self):
         PM_max, permutations = self._LLP_PM_max_and_permutations
         return tuple(_palp_canonical_order(self._LLP.vertices(), PM_max, permutations)[0])
@@ -260,7 +264,8 @@ class Sandwich:
                 #self._key_func_B_permutation_normal_form,
                 #self._key_func_A_vertex_B_facet_permutation_normal_form,
                 #self._key_func_LLP_permutation_normal_form,
-                self._key_func_LLP_palp_native_normal_form)
+                #self._key_func_LLP_palp_native_normal_form,   # Actually no need to construct LLP b/c gap=0
+                self._key_func_A_palp_native_normal_form)
 
     @staticmethod
     def key_costs():
