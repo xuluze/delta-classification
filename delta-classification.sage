@@ -546,37 +546,6 @@ def is_extendable(S,v,Delta):
     return true
 
 
-def reduce_sandwich(newA, sandwich, Delta):
-    """
-        For a given sandwich (A,B) and a value of Delta
-        the function returns a polytope
-        obtained by removing all of the lattice points v of B
-        with the property that if v is added to A, there will be a determinant of absolute value > Delta
-    """
-    to_be_removed = set()
-    to_be_kept = set()
-
-    Z = sandwich.B_integral_points()
-    for v in Z:
-        if v in newA[1]:
-            continue
-        if v in to_be_removed or v in to_be_kept:  ## this just avoids considering -w in case that w was considered already before
-            continue
-        mv = -v
-        mv.set_immutable()
-        if is_extendable(newA[0],v,Delta):
-            to_be_kept.add(v)
-            to_be_kept.add(mv)
-        else:
-            to_be_removed.add(v)
-            to_be_removed.add(mv)
-    if to_be_removed:
-        newB = tuple(z for z in Z if z not in to_be_removed)
-        return Sandwich(newA, newB)
-    else:
-        return Sandwich(newA, sandwich._B, B_integral_points=Z)
-
-
 def layered_polytope_from_sandwich(A,B):
     """ 3*B is embedded into height 0, two copies of 3*A are embedded into heights 1 and -1.
         Then, one generates a polytope based on these three layers at heights -1,0 and 1
@@ -642,14 +611,50 @@ class SandwichFactory(defaultdict):
             mbA = matrix(basisA)
             mA = mbA.augment(-mbA)
             A = self._polyhedra_parent([mA.transpose(), [], []], None, convert=True)
-            halfA = break_symmetry(A,m)
+
+            if self._mode == 'delta_cone':  # FIXME: Should probably get rid of halfA altogether
+                halfA = tuple(sorted(tuple(int(x) for x in A.vertices())))
+            else:
+                halfA = break_symmetry(A,m)
 
             # second, the outer container B is the centrally symmetric parallelotope spanned by the vectors in basisA
             B = polytopes.parallelotope(mA.transpose(), backend=self._polyhedra_backend)
 
             # B may contain some integral points that are Delta-too-large with respect to A, and so we do:
             sandwich = Sandwich([halfA,A], B)
-            yield reduce_sandwich([halfA,A], sandwich, Delta)
+            yield self.reduce_sandwich([halfA,A], sandwich)
+
+    def reduce_sandwich(self, newA, sandwich):
+        """
+        For a given sandwich (A,B) and a value of Delta
+        the function returns a polytope
+        obtained by removing all of the lattice points v of B
+        with the property that if v is added to A, there will be a determinant of absolute value > Delta
+        """
+        Delta = self._Delta
+
+        to_be_removed = set()
+        to_be_kept = set()
+
+        Z = sandwich.B_integral_points()
+        for v in Z:
+            if v in newA[1]:
+                continue
+            if v in to_be_removed or v in to_be_kept:  ## this just avoids considering -w in case that w was considered already before
+                continue
+            mv = -v
+            mv.set_immutable()
+            if is_extendable(newA[0],v,Delta):
+                to_be_kept.add(v)
+                to_be_kept.add(mv)
+            else:
+                to_be_removed.add(v)
+                to_be_removed.add(mv)
+        if to_be_removed:
+            newB = tuple(z for z in Z if z not in to_be_removed)
+            return Sandwich(newA, newB)
+        else:
+            return Sandwich(newA, sandwich._B, B_integral_points=Z)
 
     def append_sandwich(self, sandwich):
         """
@@ -689,7 +694,7 @@ class SandwichFactory(defaultdict):
                                               convert=True)  ## this uses that all points in B are "Delta-ok" for A
         half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
         newA = [half_of_blow_up_of_A, blow_up_of_A]
-        sandwich1 = reduce_sandwich(newA, sandwich, self._Delta)
+        sandwich1 = self.reduce_sandwich(newA, sandwich)
 
         reduction_of_B = tuple(z for z in sandwich.B_integral_points()
                                if z != v and z != mv)
