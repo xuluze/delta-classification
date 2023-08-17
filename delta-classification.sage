@@ -521,31 +521,6 @@ class SandwichStorage_with_diskcache_Cache(SandwichStorage):
         return key[index]
 
 
-def prepare_sandwiches(m, Delta, polyhedra_backend='ppl'):
-    if Delta == 2:
-        HNFs = []
-        for nonzeros in range(m):
-            R = matrix.identity(m)
-            for i in range(m-nonzeros-1,m):
-                R[i, m-1] += 1
-            HNFs.append(R)
-    else:
-        HNFs = delta_normal_forms(m,Delta)
-    for basisA in HNFs:
-        # first, we generate A and halfA out of basisA
-        mbA = matrix(basisA)
-        mA = mbA.augment(-mbA)
-        A = Polyhedron(mA.transpose(), backend=polyhedra_backend)
-        halfA = break_symmetry(A,m)
-
-        # second, the outer container B is the centrally symmetric parallelotope spanned by the vectors in basisA
-        B = polytopes.parallelotope(mA.transpose(), backend=polyhedra_backend)
-
-        # B may contain some integral points that are Delta-too-large with respect to A, and so we do:
-        sandwich = Sandwich([halfA,A], B)
-        yield reduce_sandwich([halfA,A], sandwich, Delta)
-
-
 def break_symmetry(A,m):
     """
     	takes a centrally symmetric m-dimensional polytope A
@@ -557,6 +532,7 @@ def break_symmetry(A,m):
             l = tuple(int(x) for x in z)
             halfA.append(l)
     return tuple(sorted(halfA))
+
 
 def is_extendable(S,v,Delta):
     """
@@ -625,16 +601,55 @@ sandwich_failures = 0
 
 class SandwichFactory(defaultdict):
 
-    def __init__(self, m, Delta, extremal, polyhedra_backend='ppl'):
+    def __init__(self, m, Delta, mode, polyhedra_backend='ppl'):
         super().__init__(SandwichStorage)
         self._m = m
         self._Delta = Delta
-        self._extremal = extremal
-        if extremal:
+
+        # Normalize computation mode
+        if not mode:
+            mode = 'delta'
+        elif mode is True:
+            mode = 'delta_ext'
+
+        if mode not in ['delta', 'delta_ext', 'delta_cone']:
+            raise ValueError("Unknown computation mode", mode)
+
+        self._mode = mode
+        if mode == 'delta_ext':
             # set the known lower bound for h(Delta,m) by Lee et al.
             self._cmax = m^2 - m + 1 *2*m*Delta
         self._deque = []
+
+        self._polyhedra_backend = polyhedra_backend
         self._polyhedra_parent = Polyhedra(ZZ, m, backend=polyhedra_backend)
+
+    def prepare_sandwiches(self):
+        m = self._m
+        Delta = self._Delta
+
+        if Delta == 2:
+            HNFs = []
+            for nonzeros in range(m):
+                R = matrix.identity(m)
+                for i in range(m-nonzeros-1,m):
+                    R[i, m-1] += 1
+                HNFs.append(R)
+        else:
+            HNFs = delta_normal_forms(m,Delta)
+        for basisA in HNFs:
+            # first, we generate A and halfA out of basisA
+            mbA = matrix(basisA)
+            mA = mbA.augment(-mbA)
+            A = self._polyhedra_parent([mA.transpose(), [], []], None, convert=True)
+            halfA = break_symmetry(A,m)
+
+            # second, the outer container B is the centrally symmetric parallelotope spanned by the vectors in basisA
+            B = polytopes.parallelotope(mA.transpose(), backend=self._polyhedra_backend)
+
+            # B may contain some integral points that are Delta-too-large with respect to A, and so we do:
+            sandwich = Sandwich([halfA,A], B)
+            yield reduce_sandwich([halfA,A], sandwich, Delta)
 
     def append_sandwich(self, sandwich):
         """
@@ -673,13 +688,13 @@ class SandwichFactory(defaultdict):
                                               None,
                                               convert=True)  ## this uses that all points in B are "Delta-ok" for A
         half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
-        reduction_of_B = tuple(z for z in sandwich.B_integral_points()
-                               if z != v and z != mv)
-
         newA = [half_of_blow_up_of_A, blow_up_of_A]
         sandwich1 = reduce_sandwich(newA, sandwich, self._Delta)
+
+        reduction_of_B = tuple(z for z in sandwich.B_integral_points()
+                               if z != v and z != mv)
         sandwich2 = Sandwich(A, reduction_of_B, A_integral_points=sandwich.A_integral_points())
-        if self._extremal:
+        if self._mode == 'delta_ext':
             if sandwich1.B_integral_points_count() >= self._cmax:
                 yield sandwich1
                 npts_blow_up = sandwich1.A_integral_points_count()
@@ -698,8 +713,8 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
 
     On macOS, use 'ulimit -n 2048' before starting Sage to avoid running into 'Too many open files'
     """
-    def __init__(self, m, Delta, extremal, dirname, **kwds):
-        super().__init__(m, Delta, extremal, **kwds)
+    def __init__(self, m, Delta, mode, dirname, **kwds):
+        super().__init__(m, Delta, mode, **kwds)
 
         try:
             import diskcache
@@ -724,7 +739,7 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
         return f'{self.__class__.__name__}({self._dirname!r}) with keys {sorted(self)}'
 
 
-def new_sandwich_factory(m, Delta, extremal, dirname=None, **kwds):
+def new_sandwich_factory(m, Delta, mode, dirname=None, **kwds):
 
     # Using https://github.com/mina86/pygtrie (https://pygtrie.readthedocs.io/en/latest/#pygtrie.Trie)
     # seemed promising, but unfortunately it always eagerly uses the whole key
@@ -735,12 +750,14 @@ def new_sandwich_factory(m, Delta, extremal, dirname=None, **kwds):
     #sandwich_factory = defaultdict(Trie)
 
     if dirname is None:
-        sandwich_factory = SandwichFactory(m, Delta, extremal, **kwds)
+        sandwich_factory = SandwichFactory(m, Delta, mode, **kwds)
     else:
         dirname += f'_m{m}_Delta{Delta}'
-        if extremal:
+        if mode in ['delta_ext', True]:
             dirname += '_ext'
-        sandwich_factory = SandwichFactory_with_diskcache_Index(m, Delta, extremal, dirname, **kwds)
+        elif mode == 'delta_cone':
+            dirname += '_cone'
+        sandwich_factory = SandwichFactory_with_diskcache_Index(m, Delta, mode, dirname, **kwds)
 
     return sandwich_factory
 
@@ -754,6 +771,9 @@ def sandwich_factory_statistics(sf):
     logging.info(50*"-")
 
 
+## Code below uses boolean "extremal"; above has been generalized to "mode"
+
+
 def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', iterations=None,
                          polyhedra_backend='ppl'):
     """
@@ -765,7 +785,7 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
 
     match order:
         case 'gap':
-            for sandwich in prepare_sandwiches(m, Delta, polyhedra_backend=polyhedra_backend):
+            for sandwich in sf.prepare_sandwiches():
                 sf.append_sandwich(sandwich)
             maxGap = max(sf.keys())
             while maxGap > 0:
@@ -779,7 +799,7 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
 
         case _:
             deque = sf._deque
-            for sandwich in prepare_sandwiches(m, Delta, polyhedra_backend=polyhedra_backend):
+            for sandwich in sf.prepare_sandwiches():
                 if sf.append_sandwich(sandwich) is not None:
                     deque.append(sandwich)
 
