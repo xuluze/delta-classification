@@ -655,6 +655,10 @@ class SandwichFactory(defaultdict):
                 continue
             mv = -v
             mv.set_immutable()
+            if mode == 'delta_cone':
+                if mv in newA[1]:
+                    # never extend to a non-pointed cone
+                    continue
             if is_extendable(newA[0],v,Delta):
                 to_be_kept.add(v)
                 if mode != 'delta_cone':
@@ -678,13 +682,12 @@ class SandwichFactory(defaultdict):
 
         Gap = sandwich.gap()
 
-        print(sandwich)
-        breakpoint()
-
         # crucial that sandwich is a LatticePolytope (or something else with a good hash),
         # not a Polyhedron (which has a poor hash)
         if sandwich not in self[Gap]:
             self[Gap][sandwich] = [(sandwich._halfA, sandwich._A), sandwich._B]
+            if not Gap:
+                print(sandwich)
             sandwich_failures += 1
             return sandwich
         else:
@@ -855,8 +858,6 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
                     if sf.append_sandwich(new_sandwich) is not None:
                         if new_sandwich.gap():
                             deque.append(new_sandwich)
-                        else:
-                            print(new_sandwich)
 
                 if iteration % 2000 == 0:
                     sandwich_factory_statistics(sf)  # very expensive when using diskcache.Deque
