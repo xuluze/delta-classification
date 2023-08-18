@@ -617,10 +617,12 @@ class SandwichFactory(defaultdict):
             mbA = matrix(basisA)
             if mode == 'delta_cone':
                 # Start with positive HNF vectors only; this breaks symmetry
-                mA = mbA.augment(vector(ZZ, m))
+                A_points = mbA.augment(vector(ZZ, m))
+                mA = mbA.augment(-mbA)
             else:
                 mA = mbA.augment(-mbA)
-            A = self._polyhedra_parent([mA.transpose(), [], []], None, convert=True)
+                A_points = mA
+            A = self._polyhedra_parent([A_points.transpose(), [], []], None, convert=True)
 
             if mode == 'delta_cone':  # FIXME: Should probably get rid of halfA altogether
                 halfA = do_not_break_symmetry(A, m)
@@ -656,8 +658,9 @@ class SandwichFactory(defaultdict):
             mv = -v
             mv.set_immutable()
             if mode == 'delta_cone':
-                if mv in newA[1]:
+                if mv/1000 in newA[1]:
                     # never extend to a non-pointed cone
+                    to_be_removed.add(v)
                     continue
             if is_extendable(newA[0],v,Delta):
                 to_be_kept.add(v)
@@ -703,6 +706,11 @@ class SandwichFactory(defaultdict):
         B = sandwich._B
 
         for v in B.vertices(): # pick a vertex of B which is not in A
+
+            if self._mode == 'delta_cone':
+                if not v:
+                    continue
+
             if v not in A[1]:
                 break
 
@@ -804,16 +812,23 @@ def sandwich_factory_statistics(sf):
     logging.info(50*"-")
 
 
-## Code below uses boolean "extremal"; above has been generalized to "mode"
-
-
-def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', iterations=None,
+def delta_classification(m, Delta, mode, dirname=None, *, order='gap', iterations=None,
                          polyhedra_backend='ppl'):
     """
-        runs the sandwich factory algorithm and classifies all centrally symmetric m-dimensional lattice polytopes with largest determinant equal to Delta
-        extremal is a Boolean parameter determining whether the whole classification is sought [extremal=false], or only the classification of the extremal examples attaining h(Delta,m) [extremal=true]
+    Run the sandwich factory algorithm.
+
+    INPUT:
+
+    - ``mode`` -- one of
+
+      - ``'delta'`` -- classify all centrally symmetric m-dimensional lattice polytopes
+        with largest determinant equal to Delta
+
+      - ``'delta_ext'`` -- only include the extremal examples attaining h(Delta,m)
+
+      - ``'delta_cone' -- oriented, non--centrally symmetric version
     """
-    sf = new_sandwich_factory(m, Delta, extremal, dirname=dirname,
+    sf = new_sandwich_factory(m, Delta, mode, dirname=dirname,
                               polyhedra_backend=polyhedra_backend)
 
     match order:
@@ -870,6 +885,19 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
         result.append(A[1])  ## only store the polytope in A
 
     return result
+
+
+def plot_delta_classification(m, Delta=None, mode=None, L=None):
+    return graphics_array([P.plot(xmin=-Delta, xmax=Delta,
+                                  ymin=-Delta, ymax=Delta,
+                                  axes=True, ticks=[[], []],
+                                  gridlines=[range(-Delta,Delta+1),
+                                             range(-Delta,Delta+1)])
+                           for P in L],
+                          ncols=6)
+
+
+## Code below uses boolean "extremal"; above has been generalized to "mode"
 
 
 def update_delta_classification_database(m,Delta,extremal):
