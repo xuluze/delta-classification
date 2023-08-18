@@ -534,6 +534,10 @@ def break_symmetry(A,m):
     return tuple(sorted(halfA))
 
 
+def do_not_break_symmetry(A, m):
+    return tuple(sorted(tuple(int(x) for x in z) for z in A.vertices()))
+
+
 def is_extendable(S,v,Delta):
     """
         Check whether the extension of a set S of vectors by a vector v causes a determinant to exceed Delta.
@@ -596,6 +600,7 @@ class SandwichFactory(defaultdict):
     def prepare_sandwiches(self):
         m = self._m
         Delta = self._Delta
+        mode = self._mode
 
         if Delta == 2:
             HNFs = []
@@ -606,14 +611,19 @@ class SandwichFactory(defaultdict):
                 HNFs.append(R)
         else:
             HNFs = delta_normal_forms(m,Delta)
+
         for basisA in HNFs:
             # first, we generate A and halfA out of basisA
             mbA = matrix(basisA)
-            mA = mbA.augment(-mbA)
+            if mode == 'delta_cone':
+                # Start with positive HNF vectors only; this breaks symmetry
+                mA = mbA.augment(vector(ZZ, m))
+            else:
+                mA = mbA.augment(-mbA)
             A = self._polyhedra_parent([mA.transpose(), [], []], None, convert=True)
 
-            if self._mode == 'delta_cone':  # FIXME: Should probably get rid of halfA altogether
-                halfA = tuple(sorted(tuple(int(x) for x in A.vertices())))
+            if mode == 'delta_cone':  # FIXME: Should probably get rid of halfA altogether
+                halfA = do_not_break_symmetry(A, m)
             else:
                 halfA = break_symmetry(A,m)
 
@@ -632,6 +642,7 @@ class SandwichFactory(defaultdict):
         with the property that if v is added to A, there will be a determinant of absolute value > Delta
         """
         Delta = self._Delta
+        mode = self._mode
 
         to_be_removed = set()
         to_be_kept = set()
@@ -646,10 +657,12 @@ class SandwichFactory(defaultdict):
             mv.set_immutable()
             if is_extendable(newA[0],v,Delta):
                 to_be_kept.add(v)
-                to_be_kept.add(mv)
+                if mode != 'delta_cone':
+                    to_be_kept.add(mv)
             else:
                 to_be_removed.add(v)
-                to_be_removed.add(mv)
+                if mode != 'delta_cone':
+                    to_be_removed.add(mv)
         if to_be_removed:
             newB = tuple(z for z in Z if z not in to_be_removed)
             return Sandwich(newA, newB)
@@ -664,6 +677,9 @@ class SandwichFactory(defaultdict):
         global sandwich_hits, sandwich_failures
 
         Gap = sandwich.gap()
+
+        print(sandwich)
+        breakpoint()
 
         # crucial that sandwich is a LatticePolytope (or something else with a good hash),
         # not a Polyhedron (which has a poor hash)
@@ -689,15 +705,24 @@ class SandwichFactory(defaultdict):
 
         v = vector(v, immutable=True)
         mv = -v
-        blow_up_of_A = self._polyhedra_parent([list(A[1].vertices()) + [v, mv], [], []],
+
+        if self._mode == 'delta_cone':
+            points_added = [v]
+        else:
+            points_added = [v, mv]
+
+        blow_up_of_A = self._polyhedra_parent([list(A[1].vertices()) + points_added, [], []],
                                               None,
                                               convert=True)  ## this uses that all points in B are "Delta-ok" for A
-        half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
+        if self._mode == 'delta_cone':
+            half_of_blow_up_of_A = do_not_break_symmetry(blow_up_of_A, self._m)
+        else:
+            half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
         newA = [half_of_blow_up_of_A, blow_up_of_A]
         sandwich1 = self.reduce_sandwich(newA, sandwich)
 
         reduction_of_B = tuple(z for z in sandwich.B_integral_points()
-                               if z != v and z != mv)
+                               if z not in points_added)
         sandwich2 = Sandwich(A, reduction_of_B, A_integral_points=sandwich.A_integral_points())
         if self._mode == 'delta_ext':
             if sandwich1.B_integral_points_count() >= self._cmax:
