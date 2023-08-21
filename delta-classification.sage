@@ -888,14 +888,39 @@ def delta_classification(m, Delta, mode, dirname=None, *, order='gap', iteration
 
 
 def plot_delta_classification(m, Delta=None, mode=None, L=None):
-    return graphics_array([P.plot(xmin=-Delta, xmax=Delta,
-                                  ymin=-Delta, ymax=Delta,
-                                  axes=True, ticks=[[], []],
-                                  gridlines=[range(-Delta,Delta+1),
-                                             range(-Delta,Delta+1)])
-                           for P in L],
-                          ncols=6)
-
+    match m:
+        case 2r:
+            return graphics_array([P.plot(xmin=-Delta, xmax=Delta,
+                                          ymin=-Delta, ymax=Delta,
+                                          axes=True, ticks=[[], []],
+                                          gridlines=[range(-Delta,Delta+1),
+                                                     range(-Delta,Delta+1)])
+                                   for P in L],
+                                  ncols=6)
+        case 3r:
+            G = Graphics()
+            L_iter = iter(L)
+            V = RDF^3
+            try:
+                for y in range(isqrt(len(L))):
+                    for x in range(isqrt(len(L)) + 1):
+                        P = next(L_iter)
+                        center = V([x * (2*Delta+1), y * (2*Delta+1), 0])
+                        # coordinate planes
+                        for i, j in Combinations(3, 2):
+                            G += polygon([center - Delta*V.gen(i) - Delta*V.gen(j),
+                                          center - Delta*V.gen(i) + Delta*V.gen(j),
+                                          center + Delta*V.gen(i) + Delta*V.gen(j),
+                                          center + Delta*V.gen(i) - Delta*V.gen(j)],
+                                         color='grey', alpha=.1)
+                        P_shifted = P + center
+                        G += P_shifted.plot(xmin=-Delta, xmax=Delta,
+                                            ymin=-Delta, ymax=Delta,
+                                            zmin=-Delta, zmax=Delta,
+                                            axes=False, alpha=.3, polygon='red')
+            except StopIteration:
+                pass
+            return G
 
 ## Code below uses boolean "extremal"; above has been generalized to "mode"
 
