@@ -1,3 +1,5 @@
+# needs https://github.com/sagemath/sage/pull/36031
+
 #########################################################################################################
 # the code below is an adaptation of the code for mixed volume classification by Christopher Borger
 # https://github.com/christopherborger/mixed_volume_classification/blob/master/volume_classification.sage
@@ -13,7 +15,8 @@ import sys
 
 from collections import defaultdict
 
-from sage.geometry.lattice_polytope import LatticePolytope, _palp_canonical_order
+from sage.geometry.palp_normal_form import _palp_PM_max, _palp_canonical_order
+from sage.geometry.polyhedron.parent import Polyhedra
 from sage.misc.lazy_attribute import lazy_attribute
 
 # Using the logging package one can conveniently turn off and on the auxiliary messages
@@ -44,12 +47,26 @@ class Sandwich:
         sage: list(S)
 
     """
-    def __init__(self, A, B):
+    def __init__(self, A, B, *, A_integral_points=None, B_integral_points=None):
         if isinstance(A, (tuple, list)):
             # Assume it's [halfA, A] where A is a Polyhedron
-            A = A[1]
-        self._A = A
-        self._B = B
+            self._A = A[1]
+            self._halfA = A[0]
+        else:
+            self._A = A
+
+        if A_integral_points is not None:
+            self._A_integral_points = A_integral_points
+
+        if B_integral_points is not None:
+            self._B_integral_points = B_integral_points
+        elif isinstance(B, (tuple, list)):
+            self._B_integral_points = B
+        else:
+            self._B = B
+
+    def polyhedra_parent(self):
+        return self._A.parent()
 
     def __repr__(self):
         if self.gap():
@@ -59,25 +76,50 @@ class Sandwich:
     def plot(self):
         return self._B.plot(alpha=.3, polygon='yellow') + self._A.plot(alpha=.3, polygon='red')
 
+    @lazy_attribute
+    def _halfA(self):
+        A = self._A
+        m = A.ambient_dim()
+        return break_symmetry(A, m)
+
+    @lazy_attribute
+    def _A_integral_points(self):
+        return self._A.integral_points()
+
+    def A_integral_points(self):
+        return self._A_integral_points
+
+    def A_integral_points_count(self):
+        return len(self.A_integral_points())
+
+    @lazy_attribute
+    def _B_integral_points(self):
+        return self._B.integral_points()
+
+    @lazy_attribute
+    def _B(self):
+        return self.polyhedra_parent()([self._B_integral_points, [], []], None)
+
+    def B_integral_points(self):
+        r"""
+        Return a tuple of immutable vectors
+        """
+        return self._B_integral_points
+
+    def B_integral_points_count(self):
+        return len(self.B_integral_points())
+
     @cached_method
     def gap(self):
-        return self._B.integral_points_count() - self._A.integral_points_count()
+        return self.B_integral_points_count() - self.A_integral_points_count()
 
     @cached_method
     def _key_func_dimensions(self):
         return (self._A.n_facets(), self._A.n_vertices(), self._B.n_facets(), self._B.n_vertices())
 
     @lazy_attribute
-    def _A_LP(self):
-        return LatticePolytope(self._A.vertices_list())
-
-    @lazy_attribute
-    def _B_LP(self):
-        return LatticePolytope(self._B.vertices_list())
-
-    @lazy_attribute
     def _B_vertex_facet_pairing_matrix(self):
-        return self._B_LP.vertex_facet_pairing_matrix()
+        return self._B.slack_matrix().transpose()
 
     @cached_method
     def _key_func_B_partitions(self):
@@ -98,7 +140,7 @@ class Sandwich:
 
     @lazy_attribute
     def _A_vertex_facet_pairing_matrix(self):
-        return self._A_LP.vertex_facet_pairing_matrix()
+        return self._A.slack_matrix().transpose()
 
     @staticmethod
     def _row_sums(matrix):
@@ -148,10 +190,15 @@ class Sandwich:
 
     @lazy_attribute
     def _A_vertex_B_facet_pairing_matrix(self):
-        V = self._A_LP.vertices()
-        nv = self._A_LP.nvertices()
-        PM = matrix(ZZ, [n * V + vector(ZZ, [c] * nv)
-                         for n, c in zip(self._B_LP.facet_normals(), self._B_LP.facet_constants())])
+
+        Vrep_matrix = matrix(ZZ, self._A.Vrepresentation())
+        Hrep_matrix = matrix(ZZ, self._B.Hrepresentation())
+
+        # Getting homogeneous coordinates of the Vrepresentation.
+        hom_helper = matrix(ZZ, [1 if v.is_vertex() else 0 for v in self._A.Vrepresentation()])
+        hom_Vrep = hom_helper.stack(Vrep_matrix.transpose())
+
+        PM = Hrep_matrix * hom_Vrep
         PM.set_immutable()
         return PM
 
@@ -174,15 +221,15 @@ class Sandwich:
 
     @lazy_attribute
     def _LLP(self):
-        return layered_lattice_polytope_from_sandwich((None, self._A), self._B)
+        return layered_polytope_from_sandwich((None, self._A), self._B)
 
     @lazy_attribute
     def _LLP_vertex_facet_pairing_matrix(self):
-        return self._LLP.vertex_facet_pairing_matrix()
+        return self._LLP.slack_matrix().transpose()
 
     @lazy_attribute
     def _LLP_PM_max_and_permutations(self):
-        PM_max, permutations = self._LLP._palp_PM_max(check=True)
+        PM_max, permutations = _palp_PM_max(self._LLP_vertex_facet_pairing_matrix, check=True)
         PM_max.set_immutable()
         return PM_max, permutations
 
@@ -198,13 +245,18 @@ class Sandwich:
         return PNF
 
     @cached_method(do_pickle=True)
+    def _key_func_A_palp_native_normal_form(self):
+        return tuple(self._A.normal_form())
+
+    @cached_method(do_pickle=True)
     def _key_func_LLP_palp_native_normal_form(self):
-        #breakpoint()
-        #return self._LLP.normal_form(algorithm='palp_native')
         PM_max, permutations = self._LLP_PM_max_and_permutations
-        return _palp_canonical_order(self._LLP.vertices(), PM_max, permutations)[0]
+        return tuple(_palp_canonical_order(self._LLP.vertices(), PM_max, permutations)[0])
 
     def key_funcs(self):
+        if self.gap():
+            return (self._key_func_dimensions,
+                    self._key_func_A_vertex_B_facet_partitions)
         return (self._key_func_dimensions,
                 #self._key_func_A_partitions,
                 #self._key_func_B_partitions,
@@ -212,7 +264,8 @@ class Sandwich:
                 #self._key_func_B_permutation_normal_form,
                 #self._key_func_A_vertex_B_facet_permutation_normal_form,
                 #self._key_func_LLP_permutation_normal_form,
-                self._key_func_LLP_palp_native_normal_form)
+                #self._key_func_LLP_palp_native_normal_form,   # Actually no need to construct LLP b/c gap=0
+                self._key_func_A_palp_native_normal_form)
 
     @staticmethod
     def key_costs():
@@ -239,7 +292,7 @@ class Sandwich:
 
     @cached_method
     def noninvariant_keys(self):
-        return (tuple(sorted(tuple(int(x) for x in v) for v in self._A.vertices())),
+        return (self._halfA,
                 tuple(sorted(tuple(int(x) for x in v) for v in self._B.vertices())))
 
     def __eq_noninvariant__(self, other):
@@ -344,12 +397,14 @@ class SandwichStorage:
             # is too expensive. When the subtrie has <= THRESHOLD candidates, it may be faster to invert:
             # loop through all candidates and do the fast non-invariant check.
             if (cost := self._key_cost(key, len(key_prefix))) > 1:
-                if len(next_mapping := self._key_prefix_to_mapping(key_prefix + (None,))) <= cost:
-                    for same_prefix, item in next_mapping.items():
+                next_mapping = self._key_prefix_to_mapping(key_prefix + (None,))
+                if not isinstance(next_mapping, dict) or len(next_mapping) <= cost:  # len is expensive for diskcache.Index
+                    for i, (same_prefix, item) in enumerate(next_mapping.items()):
                         if item != 'not_unique':
                             if item[0].__eq_noninvariant__(key):
                                 return key_prefix + (self._key_item(item, 0),), item, True
-
+                        if i >= cost:
+                            break
             try:
                 key_prefix = key_prefix + (self._key_item(key, len(key_prefix)),)
             except IndexError:
@@ -466,31 +521,6 @@ class SandwichStorage_with_diskcache_Cache(SandwichStorage):
         return key[index]
 
 
-def prepare_sandwiches(m,Delta):
-    if Delta == 2:
-        HNFs = []
-        for nonzeros in range(m):
-            R = matrix.identity(m)
-            for i in range(m-nonzeros-1,m):
-                R[i, m-1] += 1
-            HNFs.append(R)
-    else:
-        HNFs = delta_normal_forms(m,Delta)
-    for basisA in HNFs:
-        # first, we generate A and halfA out of basisA
-        mbA = matrix(basisA)
-        mA = mbA.augment(-mbA)
-        A = Polyhedron(mA.transpose())
-        halfA = break_symmetry(A,m)
-
-        # second, the outer container B is the centrally symmetric parallelotope spanned by the vectors in basisA
-        B = polytopes.parallelotope(mA.transpose())
-
-        # B may contain some integral points that are Delta-too-large with respect to A, and so we do:
-        B = reduce_sandwich([halfA,A],B,Delta)
-        yield [halfA,A],B
-
-
 def break_symmetry(A,m):
     """
     	takes a centrally symmetric m-dimensional polytope A
@@ -498,10 +528,15 @@ def break_symmetry(A,m):
     """
     halfA = []
     for z in A.vertices():
-        l = vector(z)
-        if next((x for x in l if x != 0), None) > 0:
+        if next((x for x in z if x != 0), None) > 0:
+            l = tuple(int(x) for x in z)
             halfA.append(l)
-    return halfA
+    return tuple(sorted(halfA))
+
+
+def do_not_break_symmetry(A, m):
+    return tuple(sorted(tuple(int(x) for x in z) for z in A.vertices()))
+
 
 def is_extendable(S,v,Delta):
     """
@@ -515,34 +550,7 @@ def is_extendable(S,v,Delta):
     return true
 
 
-def reduce_sandwich(A,B,Delta):
-    """
-        For a given sandwich (A,B) and a value of Delta
-        the function returns a polytope
-        obtained by removing all of the lattice points v of B
-        with the property that if v is added to A, there will be a determinant of absolute value > Delta
-    """
-    to_be_removed = set()
-    to_be_kept = set()
-
-    Z = [vector(z, immutable=True) for z in B.integral_points()]
-    for v in Z:
-        if v in A[1]:
-            continue
-        if v in to_be_removed or v in to_be_kept:  ## this just avoids considering -w in case that w was considered already before
-            continue
-        mv = -v
-        mv.set_immutable()
-        if is_extendable(A[0],v,Delta):
-            to_be_kept.add(v)
-            to_be_kept.add(mv)
-        else:
-            to_be_removed.add(v)
-            to_be_removed.add(mv)
-    return Polyhedron([z for z in Z if z not in to_be_removed])
-
-
-def layered_lattice_polytope_from_sandwich(A,B):
+def layered_polytope_from_sandwich(A,B):
     """ 3*B is embedded into height 0, two copies of 3*A are embedded into heights 1 and -1.
         Then, one generates a polytope based on these three layers at heights -1,0 and 1
         Note: If A and B are centrally symmetric, then the resulting polytope is centrally symmetric as well.
@@ -550,7 +558,7 @@ def layered_lattice_polytope_from_sandwich(A,B):
     middleLayer = [tuple(3*vector(v))+(0,) for v in B.vertices()]
     upperLayer = [tuple(3*vector(v))+(1,) for v in A[1].vertices()]
     lowerLayer = [tuple(3*vector(v))+(-1,) for v in A[1].vertices()]
-    return LatticePolytope(middleLayer+upperLayer+lowerLayer)
+    return Polyhedron(middleLayer+upperLayer+lowerLayer, backend=B.backend())
 
 
 # Sandwich factory is used to store sandwiches up to affine unimodular transformations.
@@ -566,32 +574,125 @@ sandwich_failures = 0
 
 class SandwichFactory(defaultdict):
 
-    def __init__(self, m, Delta, extremal):
+    def __init__(self, m, Delta, mode, polyhedra_backend='ppl'):
         super().__init__(SandwichStorage)
         self._m = m
         self._Delta = Delta
-        self._extremal = extremal
-        if extremal:
+
+        # Normalize computation mode
+        if not mode:
+            mode = 'delta'
+        elif mode is True:
+            mode = 'delta_ext'
+
+        if mode not in ['delta', 'delta_ext', 'delta_cone']:
+            raise ValueError("Unknown computation mode", mode)
+
+        self._mode = mode
+        if mode == 'delta_ext':
             # set the known lower bound for h(Delta,m) by Lee et al.
-            cmax = m^2 - m + 1 *2*m*Delta
+            self._cmax = m^2 - m + 1 *2*m*Delta
         self._deque = []
 
-    def append_sandwich(self, A, B):
+        self._polyhedra_backend = polyhedra_backend
+        self._polyhedra_parent = Polyhedra(ZZ, m, backend=polyhedra_backend)
+
+    def prepare_sandwiches(self):
+        m = self._m
+        Delta = self._Delta
+        mode = self._mode
+
+        if Delta == 2:
+            HNFs = []
+            for nonzeros in range(m):
+                R = matrix.identity(m)
+                for i in range(m-nonzeros-1,m):
+                    R[i, m-1] += 1
+                HNFs.append(R)
+        else:
+            HNFs = delta_normal_forms(m,Delta)
+
+        for basisA in HNFs:
+            # first, we generate A and halfA out of basisA
+            mbA = matrix(basisA)
+            if mode == 'delta_cone':
+                # Start with positive HNF vectors only; this breaks symmetry
+                A_points = mbA.augment(vector(ZZ, m))
+                mA = mbA.augment(-mbA)
+            else:
+                mA = mbA.augment(-mbA)
+                A_points = mA
+            A = self._polyhedra_parent([A_points.transpose(), [], []], None, convert=True)
+
+            if mode == 'delta_cone':  # FIXME: Should probably get rid of halfA altogether
+                halfA = do_not_break_symmetry(A, m)
+            else:
+                halfA = break_symmetry(A,m)
+
+            # second, the outer container B is the centrally symmetric parallelotope spanned by the vectors in basisA
+            B = polytopes.parallelotope(mA.transpose(), backend=self._polyhedra_backend)
+
+            # B may contain some integral points that are Delta-too-large with respect to A, and so we do:
+            sandwich = Sandwich([halfA,A], B)
+            yield self.reduce_sandwich([halfA,A], sandwich)
+
+    def reduce_sandwich(self, newA, sandwich):
+        """
+        For a given sandwich (A,B) and a value of Delta
+        the function returns a polytope
+        obtained by removing all of the lattice points v of B
+        with the property that if v is added to A, there will be a determinant of absolute value > Delta
+        """
+        Delta = self._Delta
+        mode = self._mode
+
+        to_be_removed = set()
+        to_be_kept = set()
+
+        Z = sandwich.B_integral_points()
+        for v in Z:
+            if v in newA[1]:
+                continue
+            if v in to_be_removed or v in to_be_kept:  ## this just avoids considering -w in case that w was considered already before
+                continue
+            mv = -v
+            mv.set_immutable()
+            if mode == 'delta_cone':
+                if mv/1000 in newA[1]:
+                    # never extend to a non-pointed cone
+                    to_be_removed.add(v)
+                    continue
+            if is_extendable(newA[0],v,Delta):
+                to_be_kept.add(v)
+                if mode != 'delta_cone':
+                    to_be_kept.add(mv)
+            else:
+                to_be_removed.add(v)
+                if mode != 'delta_cone':
+                    to_be_removed.add(mv)
+        if to_be_removed:
+            newB = tuple(z for z in Z if z not in to_be_removed)
+            return Sandwich(newA, newB)
+        else:
+            return Sandwich(newA, sandwich._B, B_integral_points=Z)
+
+    def append_sandwich(self, sandwich):
         """
             If no affine unimodular image of the sandwich (A,B) is in the sandwich factory self,
             the sandwich (A,B) is appended to self.
         """
         global sandwich_hits, sandwich_failures
 
-        SNF = Sandwich(A,B)
-        Gap = SNF.gap()
+        Gap = sandwich.gap()
 
-        # crucial that SNF is a LatticePolytope (or something else with a good hash),
+        # crucial that sandwich is a LatticePolytope (or something else with a good hash),
         # not a Polyhedron (which has a poor hash)
-        if SNF not in self[Gap]:
-            self[Gap][SNF] = [A,B]
+        if sandwich not in self[Gap]:
+            self[Gap][sandwich] = [(sandwich._halfA, sandwich._A), sandwich._B]
+            if not Gap:
+                print(sandwich)
             sandwich_failures += 1
-            return SNF
+            return sandwich
         else:
             sandwich_hits += 1
             return None
@@ -599,29 +700,52 @@ class SandwichFactory(defaultdict):
     def __repr__(self):
         return f'{self.__class__.__name__} with keys {sorted(self)}'
 
-    def branch_sandwich(self, A, B):
+    def branch_sandwich(self, sandwich):
+
+        A = (sandwich._halfA, sandwich._A)
+        B = sandwich._B
 
         for v in B.vertices(): # pick a vertex of B which is not in A
+
+            if self._mode == 'delta_cone':
+                if not v:
+                    continue
+
             if v not in A[1]:
                 break
 
-        blow_up_of_A = Polyhedron(list(A[1].vertices()) + [vector(v)] + [-vector(v)])  ## this uses that all points in B are "Delta-ok" for A
-        half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
-        reduction_of_B = Polyhedron([z for z in B.integral_points() if (vector(z) != vector(v) and vector(z) != -vector(v))])
+        v = vector(v, immutable=True)
+        mv = -v
 
-        newA = [half_of_blow_up_of_A, blow_up_of_A]
-        red_sand = reduce_sandwich(newA, B, self._Delta)
-        if self._extremal:
-            if red_sand.integral_points_count() >= self._cmax:
-                yield newA, red_sand
-                npts_blow_up = blow_up_of_A.integral_points_count()
-                if npts_blow_up > self._cmax:
-                    cmax = npts_blow_up
-            if reduction_of_B.integral_points_count() >= self._cmax:
-                yield A, reduction_of_B
+        if self._mode == 'delta_cone':
+            points_added = [v]
         else:
-            yield newA, red_sand
-            yield A, reduction_of_B
+            points_added = [v, mv]
+
+        blow_up_of_A = self._polyhedra_parent([list(A[1].vertices()) + points_added, [], []],
+                                              None,
+                                              convert=True)  ## this uses that all points in B are "Delta-ok" for A
+        if self._mode == 'delta_cone':
+            half_of_blow_up_of_A = do_not_break_symmetry(blow_up_of_A, self._m)
+        else:
+            half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
+        newA = [half_of_blow_up_of_A, blow_up_of_A]
+        sandwich1 = self.reduce_sandwich(newA, sandwich)
+
+        reduction_of_B = tuple(z for z in sandwich.B_integral_points()
+                               if z not in points_added)
+        sandwich2 = Sandwich(A, reduction_of_B, A_integral_points=sandwich.A_integral_points())
+        if self._mode == 'delta_ext':
+            if sandwich1.B_integral_points_count() >= self._cmax:
+                yield sandwich1
+                npts_blow_up = sandwich1.A_integral_points_count()
+                if npts_blow_up > self._cmax:
+                    self._cmax = npts_blow_up
+            if sandwich2.B_integral_points_count() >= self._cmax:
+                yield sandwich2
+        else:
+            yield sandwich1
+            yield sandwich2
 
 
 class SandwichFactory_with_diskcache_Index(SandwichFactory):
@@ -630,8 +754,8 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
 
     On macOS, use 'ulimit -n 2048' before starting Sage to avoid running into 'Too many open files'
     """
-    def __init__(self, m, Delta, extremal, dirname):
-        super().__init__(m, Delta, extremal)
+    def __init__(self, m, Delta, mode, dirname, **kwds):
+        super().__init__(m, Delta, mode, **kwds)
 
         try:
             import diskcache
@@ -648,7 +772,7 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
         mapping_factory = make_diskcache_Index_factory(self._dirname + f'_gap{key}')
         #mapping_factory = None  # we are testing only the Cache now
         value = SandwichStorage_with_diskcache_Cache(mapping_factory, cache=self._sandwich_cache)
-        print(f"Creating SandwichStorage_with_diskcache_Cache for gap {key}; size = {len(value)}")
+        print(f"Creating SandwichStorage_with_diskcache_Cache for gap {key}")  # ; size = {len(value)}")  -- expensive to take len()
         self[key] = value
         return value
 
@@ -656,7 +780,7 @@ class SandwichFactory_with_diskcache_Index(SandwichFactory):
         return f'{self.__class__.__name__}({self._dirname!r}) with keys {sorted(self)}'
 
 
-def new_sandwich_factory(m, Delta, extremal, dirname=None):
+def new_sandwich_factory(m, Delta, mode, dirname=None, **kwds):
 
     # Using https://github.com/mina86/pygtrie (https://pygtrie.readthedocs.io/en/latest/#pygtrie.Trie)
     # seemed promising, but unfortunately it always eagerly uses the whole key
@@ -667,12 +791,14 @@ def new_sandwich_factory(m, Delta, extremal, dirname=None):
     #sandwich_factory = defaultdict(Trie)
 
     if dirname is None:
-        sandwich_factory = SandwichFactory(m, Delta, extremal)
+        sandwich_factory = SandwichFactory(m, Delta, mode, **kwds)
     else:
         dirname += f'_m{m}_Delta{Delta}'
-        if extremal:
+        if mode in ['delta_ext', True]:
             dirname += '_ext'
-        sandwich_factory = SandwichFactory_with_diskcache_Index(m, Delta, extremal, dirname)
+        elif mode == 'delta_cone':
+            dirname += '_cone'
+        sandwich_factory = SandwichFactory_with_diskcache_Index(m, Delta, mode, dirname, **kwds)
 
     return sandwich_factory
 
@@ -686,31 +812,43 @@ def sandwich_factory_statistics(sf):
     logging.info(50*"-")
 
 
-def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', iterations=None):
+def delta_classification(m, Delta, mode, dirname=None, *, order='gap', iterations=None,
+                         polyhedra_backend='ppl'):
     """
-        runs the sandwich factory algorithm and classifies all centrally symmetric m-dimensional lattice polytopes with largest determinant equal to Delta
-        extremal is a Boolean parameter determining whether the whole classification is sought [extremal=false], or only the classification of the extremal examples attaining h(Delta,m) [extremal=true]
+    Run the sandwich factory algorithm.
+
+    INPUT:
+
+    - ``mode`` -- one of
+
+      - ``'delta'`` -- classify all centrally symmetric m-dimensional lattice polytopes
+        with largest determinant equal to Delta
+
+      - ``'delta_ext'`` -- only include the extremal examples attaining h(Delta,m)
+
+      - ``'delta_cone' -- oriented, non--centrally symmetric version
     """
-    sf = new_sandwich_factory(m, Delta, extremal, dirname=dirname)
+    sf = new_sandwich_factory(m, Delta, mode, dirname=dirname,
+                              polyhedra_backend=polyhedra_backend)
 
     match order:
         case 'gap':
-            for A,B in prepare_sandwiches(m, Delta):
-                sf.append_sandwich(A, B)
+            for sandwich in sf.prepare_sandwiches():
+                sf.append_sandwich(sandwich)
             maxGap = max(sf.keys())
             while maxGap > 0:
                 sandwich_factory_statistics(sf)
-                for A, B in sf[maxGap].values():
-                    for newA, newB in sf.branch_sandwich(A, B):
-                        sf.append_sandwich(newA, newB)
+                for sandwich in sf[maxGap]:
+                    for new_sandwich in sf.branch_sandwich(sandwich):
+                        sf.append_sandwich(new_sandwich)
                 del sf[maxGap]
                 maxGap = max(sf.keys())
             sandwich_factory_statistics(sf)
 
         case _:
             deque = sf._deque
-            for A, B in prepare_sandwiches(m, Delta):
-                if (sandwich := sf.append_sandwich(A, B)) is not None:
+            for sandwich in sf.prepare_sandwiches():
+                if sf.append_sandwich(sandwich) is not None:
                     deque.append(sandwich)
 
             iteration = 0
@@ -731,13 +869,10 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
                         raise ValueError(f'unknown order parameter: {order}')
                 if sandwich is None:
                     continue
-                A, B = sf[sandwich.gap()][sandwich]
-                for newA, newB in sf.branch_sandwich(A, B):
-                    if (new_sandwich := sf.append_sandwich(newA, newB)) is not None:
+                for new_sandwich in sf.branch_sandwich(sandwich):
+                    if sf.append_sandwich(new_sandwich) is not None:
                         if new_sandwich.gap():
                             deque.append(new_sandwich)
-                        else:
-                            print(new_sandwich)
 
                 if iteration % 2000 == 0:
                     sandwich_factory_statistics(sf)  # very expensive when using diskcache.Deque
@@ -750,6 +885,19 @@ def delta_classification(m, Delta, extremal, dirname=None, *, order='gap', itera
         result.append(A[1])  ## only store the polytope in A
 
     return result
+
+
+def plot_delta_classification(m, Delta=None, mode=None, L=None):
+    return graphics_array([P.plot(xmin=-Delta, xmax=Delta,
+                                  ymin=-Delta, ymax=Delta,
+                                  axes=True, ticks=[[], []],
+                                  gridlines=[range(-Delta,Delta+1),
+                                             range(-Delta,Delta+1)])
+                           for P in L],
+                          ncols=6)
+
+
+## Code below uses boolean "extremal"; above has been generalized to "mode"
 
 
 def update_delta_classification_database(m,Delta,extremal):
