@@ -706,14 +706,14 @@ class SandwichFactory(defaultdict):
         B = sandwich._B
 
         if self._mode == 'delta_cone':
-            for v in sandwich.B_integral_points(): # pick a vertex of B which is not in A
+            for v in sandwich.B_integral_points(): # pick any integral point in B which is not in A
                 if not v:
                     continue
 
                 if v not in A[1]:
                     blow_up_of_A = self._polyhedra_parent([list(A[1].vertices()) + [vector(v, immutable=True)], [], []],
                                                 None,
-                                                convert=True)  ## this uses that all points in B are "Delta-ok" for A
+                                                convert=True)
                     half_of_blow_up_of_A = do_not_break_symmetry(blow_up_of_A, self._m)
                     newA = [half_of_blow_up_of_A, blow_up_of_A]
                     sandwichi = self.reduce_sandwich(newA, sandwich)
@@ -757,10 +757,6 @@ class SandwichFactory(defaultdict):
                         self._cmax = npts_blow_up
                 if sandwich2.B_integral_points_count() >= self._cmax:
                     yield sandwich2
-            # elif self._mode == 'delta_cone':
-            #     yield sandwich1
-            #     if sandwich2.B_integral_points_count() != sandwich2.A_integral_points_count():
-            #         yield sandwich2
             else:
                 yield sandwich1
                 yield sandwich2
