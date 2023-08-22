@@ -546,8 +546,8 @@ def is_extendable(S,v,Delta):
     for C in Combinations(S,m-1):
         M = matrix(C + [list(v)])
         if abs(det(M)) > Delta:
-            return false    
-    return true
+            return False
+    return True
 
 
 def layered_polytope_from_sandwich(A,B):
@@ -668,8 +668,8 @@ class SandwichFactory(defaultdict):
                     to_be_kept.add(mv)
             else:
                 to_be_removed.add(v)
-                if mode != 'delta_cone':
-                    to_be_removed.add(mv)
+                # if mode != 'delta_cone':
+                to_be_removed.add(mv)
         if to_be_removed:
             newB = tuple(z for z in Z if z not in to_be_removed)
             return Sandwich(newA, newB)
@@ -705,47 +705,65 @@ class SandwichFactory(defaultdict):
         A = (sandwich._halfA, sandwich._A)
         B = sandwich._B
 
-        for v in B.vertices(): # pick a vertex of B which is not in A
-
-            if self._mode == 'delta_cone':
+        if self._mode == 'delta_cone':
+            for v in sandwich.B_integral_points(): # pick a vertex of B which is not in A
                 if not v:
                     continue
 
-            if v not in A[1]:
-                break
-
-        v = vector(v, immutable=True)
-        mv = -v
-
-        if self._mode == 'delta_cone':
-            points_added = [v]
+                if v not in A[1]:
+                    blow_up_of_A = self._polyhedra_parent([list(A[1].vertices()) + [vector(v, immutable=True)], [], []],
+                                                None,
+                                                convert=True)  ## this uses that all points in B are "Delta-ok" for A
+                    half_of_blow_up_of_A = do_not_break_symmetry(blow_up_of_A, self._m)
+                    newA = [half_of_blow_up_of_A, blow_up_of_A]
+                    sandwichi = self.reduce_sandwich(newA, sandwich)
+                    yield sandwichi
         else:
-            points_added = [v, mv]
+            for v in B.vertices(): # pick a vertex of B which is not in A
 
-        blow_up_of_A = self._polyhedra_parent([list(A[1].vertices()) + points_added, [], []],
-                                              None,
-                                              convert=True)  ## this uses that all points in B are "Delta-ok" for A
-        if self._mode == 'delta_cone':
-            half_of_blow_up_of_A = do_not_break_symmetry(blow_up_of_A, self._m)
-        else:
-            half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
-        newA = [half_of_blow_up_of_A, blow_up_of_A]
-        sandwich1 = self.reduce_sandwich(newA, sandwich)
+                if self._mode == 'delta_cone':
+                    if not v:
+                        continue
 
-        reduction_of_B = tuple(z for z in sandwich.B_integral_points()
-                               if z not in points_added)
-        sandwich2 = Sandwich(A, reduction_of_B, A_integral_points=sandwich.A_integral_points())
-        if self._mode == 'delta_ext':
-            if sandwich1.B_integral_points_count() >= self._cmax:
+                if v not in A[1]:
+                    break
+
+            v = vector(v, immutable=True)
+            mv = -v
+
+            if self._mode == 'delta_cone':
+                points_added = [v]
+            else:
+                points_added = [v, mv]
+
+            blow_up_of_A = self._polyhedra_parent([list(A[1].vertices()) + points_added, [], []],
+                                                None,
+                                                convert=True)  ## this uses that all points in B are "Delta-ok" for A
+            if self._mode == 'delta_cone':
+                half_of_blow_up_of_A = do_not_break_symmetry(blow_up_of_A, self._m)
+            else:
+                half_of_blow_up_of_A = break_symmetry(blow_up_of_A, self._m)
+            newA = [half_of_blow_up_of_A, blow_up_of_A]
+            sandwich1 = self.reduce_sandwich(newA, sandwich)
+
+            reduction_of_B = tuple(z for z in sandwich.B_integral_points()
+                                if z not in points_added)
+            sandwich2 = Sandwich(A, reduction_of_B, A_integral_points=sandwich.A_integral_points())
+            if self._mode == 'delta_ext':
+                if sandwich1.B_integral_points_count() >= self._cmax:
+                    yield sandwich1
+                    npts_blow_up = sandwich1.A_integral_points_count()
+                    if npts_blow_up > self._cmax:
+                        self._cmax = npts_blow_up
+                if sandwich2.B_integral_points_count() >= self._cmax:
+                    yield sandwich2
+            # elif self._mode == 'delta_cone':
+            #     yield sandwich1
+            #     if sandwich2.B_integral_points_count() != sandwich2.A_integral_points_count():
+            #         yield sandwich2
+            else:
                 yield sandwich1
-                npts_blow_up = sandwich1.A_integral_points_count()
-                if npts_blow_up > self._cmax:
-                    self._cmax = npts_blow_up
-            if sandwich2.B_integral_points_count() >= self._cmax:
                 yield sandwich2
-        else:
-            yield sandwich1
-            yield sandwich2
 
 
 class SandwichFactory_with_diskcache_Index(SandwichFactory):
