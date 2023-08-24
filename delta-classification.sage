@@ -33,7 +33,62 @@ FILE_NAME_DELTA = 'data/dim_%d_delta_%d.txt'
 FILE_NAME_DELTA_EXTR = 'data/dim_%d_delta_%d_extremal.txt'
 
 
-class Sandwich:
+class Sandwich_base:
+
+    # Methods needed for storage in SandwichStorage:
+
+    @abstract_method
+    def key_funcs(self):
+        r"""
+        Return a sequence of functions returning components of the key
+        """
+
+    @abstract_method
+    def key_costs(self):
+        r"""
+        Return a sequence of (integer) costs of the components of the key
+        """
+
+    # Optional
+
+    def noninvariant_keys(self):
+        return ()
+
+    # Default implementations
+
+    def __len__(self):
+        return len(self.key_funcs())
+
+    def __getitem__(self, i):
+        r"""
+        Return the components of the key for the trie
+        """
+        return self.key_funcs()[i]()
+
+    def item_cost(self, i):
+        try:
+            if self.key_funcs()[i].is_in_cache():
+                return 0
+        except AttributeError:
+            pass
+        return self.key_costs()[i]
+
+    def __eq_noninvariant__(self, other):
+        if self is other:
+            return True
+        return self.noninvariant_keys() == other.noninvariant_keys()
+
+    def __eq__(self, other):
+        r"""
+        Assumes that ``self`` and ``other`` are the same when all of their keys are the same
+        """
+        # First check fast non-invariant
+        if self.__eq_noninvariant__(other):
+            return True
+        return all(s == o for s, o in zip(self, other))
+
+
+class Sandwich(Sandwich_base):
     r"""
     A sandwich of lattice polytopes, equipped with a sequence of invariants as keys
 
@@ -283,38 +338,10 @@ class Sandwich:
                 1,
                 50)
 
-    def item_cost(self, i):
-        try:
-            if self.key_funcs()[i].is_in_cache():
-                return 0
-        except AttributeError:
-            pass
-        return self.key_costs()[i]
-
-    def __len__(self):
-        return len(self.key_funcs())
-
-    def __getitem__(self, i):
-        r"""
-        Return the components of the key for the trie
-        """
-        return self.key_funcs()[i]()
-
     @cached_method
     def noninvariant_keys(self):
         return (self._halfA,
                 tuple(sorted(tuple(int(x) for x in v) for v in self._B.vertices())))
-
-    def __eq_noninvariant__(self, other):
-        if self is other:
-            return True
-        return self.noninvariant_keys() == other.noninvariant_keys()
-
-    def __eq__(self, other):
-        # First check fast non-invariant
-        if self.__eq_noninvariant__(other):
-            return True
-        return all(s == o for s, o in zip(self, other))
 
 
 def dict_factory(key_prefix):
@@ -334,6 +361,8 @@ def make_diskcache_Index_factory(dirname):
 class SandwichStorage:
     r"""
     Minimal implementation of a dictionary with hierarchical lazy keys.
+
+    Items must support the :class:`Sandwich_base` protocol.
 
     Strictly worse than a proper lazy trie because everything is stashed into large dictionaries.
 
@@ -582,7 +611,16 @@ sandwich_hits = 0
 sandwich_failures = 0
 
 
-class SandwichFactory(defaultdict):
+class SandwichFactory_base:
+
+    @abstract_method
+    def branch_sandwich(self, sandwich, *args, **kwds):
+        pass
+
+    pass
+
+
+class SandwichFactory(defaultdict, SandwichFactory_base):
 
     def __init__(self, m, Delta, mode, polyhedra_backend='ppl'):
         super().__init__(SandwichStorage)
