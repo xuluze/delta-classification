@@ -47,7 +47,7 @@ class Sandwich:
         sage: list(S)
 
     """
-    def __init__(self, A, B, *, A_integral_points=None, B_integral_points=None):
+    def __init__(self, A, B, *, A_integral_points=None, B_integral_points=None, order=None):
         if isinstance(A, (tuple, list)):
             # Assume it's [halfA, A] where A is a Polyhedron
             self._A = A[1]
@@ -64,6 +64,8 @@ class Sandwich:
             self._B_integral_points = B
         else:
             self._B = B
+
+        self._order = order
 
     def polyhedra_parent(self):
         return self._A.parent()
@@ -262,9 +264,9 @@ class Sandwich:
         return tuple(_palp_canonical_order(self._LLP.vertices(), PM_max, permutations)[0])
 
     def key_funcs(self):
-        if self.gap():
-            return (self._key_func_dimensions,
-                    self._key_func_A_vertex_B_facet_partitions)
+        # if self.gap():
+        #     return (self._key_func_dimensions,
+        #             self._key_func_A_vertex_B_facet_partitions)
         return (self._key_func_A_dimensions,
                 self._key_func_A_partitions,
                 #self._key_func_B_partitions,
@@ -642,9 +644,9 @@ class SandwichFactory(defaultdict):
 
             # B may contain some integral points that are Delta-too-large with respect to A, and so we do:
             sandwich = Sandwich([halfA,A], B)
-            yield self.reduce_sandwich([halfA,A], sandwich)
+            yield self.reduce_sandwich([halfA,A], sandwich, order=-1)
 
-    def reduce_sandwich(self, newA, sandwich, to_be_removed=None):
+    def reduce_sandwich(self, newA, sandwich, order=None):
         """
         For a given sandwich (A,B) and a value of Delta
         the function returns a polytope
@@ -654,8 +656,7 @@ class SandwichFactory(defaultdict):
         Delta = self._Delta
         mode = self._mode
 
-        if not to_be_removed:
-            to_be_removed = set()
+        to_be_removed = set()
         to_be_kept = set()
 
         Z = sandwich.B_integral_points()
@@ -681,9 +682,9 @@ class SandwichFactory(defaultdict):
                     to_be_removed.add(mv)
         if to_be_removed:
             newB = tuple(z for z in Z if z not in to_be_removed)
-            return Sandwich(newA, newB)
+            return Sandwich(newA, newB, order=order)
         else:
-            return Sandwich(newA, sandwich._B, B_integral_points=Z)
+            return Sandwich(newA, sandwich._B, B_integral_points=Z, order=order)
 
     def append_sandwich(self, sandwich):
         """
@@ -715,19 +716,20 @@ class SandwichFactory(defaultdict):
         B = sandwich._B
 
         if self._mode == 'delta_cone':
-            previous_v = set()
             for v in sorted(sandwich.B_minus_A_integral_points(), key=lambda x: B_v_order[x]): # pick any integral point in B which is not in A with any given ordering B_v_order
+                if B_v_order[v] <= sandwich._order:
+                    continue
                 blow_up_of_A = self._polyhedra_parent([list(A[1].vertices()) + [vector(v, immutable=True)], [], []],
                                             None,
                                             convert=True)
                 half_of_blow_up_of_A = do_not_break_symmetry(blow_up_of_A, self._m)
                 newA = [half_of_blow_up_of_A, blow_up_of_A]
-                sandwichi = self.reduce_sandwich(newA, sandwich, to_be_removed=previous_v)
-                previous_v.add(v)
-                if sandwichi.gap() == 0:
-                    if any(is_extendable(half_of_blow_up_of_A, vv, self._Delta) for vv, vv_order in B_v_order.items() if vv_order < B_v_order[v] and vv in sandwich.B_minus_A_integral_points()):
+                # sandwich_i = self.reduce_sandwich(newA, sandwich, order=-1)
+                sandwich_i = self.reduce_sandwich(newA, sandwich, order=B_v_order[v])
+                if all(B_v_order[vv] <= sandwich_i._order for vv in sandwich_i.B_minus_A_integral_points()):
+                    if any(B_v_order[vv] < sandwich_i._order for vv in sandwich_i.B_minus_A_integral_points()):
                         continue
-                yield sandwichi
+                yield sandwich_i
         else:
             for v in B.vertices(): # pick a vertex of B which is not in A
 
