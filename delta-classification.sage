@@ -109,13 +109,21 @@ class Sandwich:
     def B_integral_points_count(self):
         return len(self.B_integral_points())
 
+    def B_minus_A_integral_points(self):
+        return tuple(v for v in self.B_integral_points() if v not in self.A_integral_points())
+
     @cached_method
     def gap(self):
-        return self.B_integral_points_count() - self.A_integral_points_count()
+        return len(self.B_minus_A_integral_points())
+        # return self.B_integral_points_count() - self.A_integral_points_count()
 
     @cached_method
     def _key_func_dimensions(self):
         return (self._A.n_facets(), self._A.n_vertices(), self._B.n_facets(), self._B.n_vertices())
+
+    @cached_method
+    def _key_func_A_dimensions(self):
+        return (self._A.n_facets(), self._A.n_vertices())
 
     @lazy_attribute
     def _B_vertex_facet_pairing_matrix(self):
@@ -257,10 +265,10 @@ class Sandwich:
         if self.gap():
             return (self._key_func_dimensions,
                     self._key_func_A_vertex_B_facet_partitions)
-        return (self._key_func_dimensions,
-                #self._key_func_A_partitions,
+        return (self._key_func_A_dimensions,
+                self._key_func_A_partitions,
                 #self._key_func_B_partitions,
-                self._key_func_A_vertex_B_facet_partitions,
+                # self._key_func_A_vertex_B_facet_partitions,
                 #self._key_func_B_permutation_normal_form,
                 #self._key_func_A_vertex_B_facet_permutation_normal_form,
                 #self._key_func_LLP_permutation_normal_form,
@@ -636,7 +644,7 @@ class SandwichFactory(defaultdict):
             sandwich = Sandwich([halfA,A], B)
             yield self.reduce_sandwich([halfA,A], sandwich)
 
-    def reduce_sandwich(self, newA, sandwich):
+    def reduce_sandwich(self, newA, sandwich, to_be_removed=None):
         """
         For a given sandwich (A,B) and a value of Delta
         the function returns a polytope
@@ -646,7 +654,8 @@ class SandwichFactory(defaultdict):
         Delta = self._Delta
         mode = self._mode
 
-        to_be_removed = set()
+        if not to_be_removed:
+            to_be_removed = set()
         to_be_kept = set()
 
         Z = sandwich.B_integral_points()
@@ -668,8 +677,8 @@ class SandwichFactory(defaultdict):
                     to_be_kept.add(mv)
             else:
                 to_be_removed.add(v)
-                # if mode != 'delta_cone':
-                to_be_removed.add(mv)
+                if mode != 'delta_cone':
+                    to_be_removed.add(mv)
         if to_be_removed:
             newB = tuple(z for z in Z if z not in to_be_removed)
             return Sandwich(newA, newB)
@@ -700,24 +709,25 @@ class SandwichFactory(defaultdict):
     def __repr__(self):
         return f'{self.__class__.__name__} with keys {sorted(self)}'
 
-    def branch_sandwich(self, sandwich):
+    def branch_sandwich(self, sandwich, B_v_order=None):
 
         A = (sandwich._halfA, sandwich._A)
         B = sandwich._B
 
         if self._mode == 'delta_cone':
-            for v in sandwich.B_integral_points(): # pick any integral point in B which is not in A
-                if not v:
-                    continue
-
-                if v not in A[1]:
-                    blow_up_of_A = self._polyhedra_parent([list(A[1].vertices()) + [vector(v, immutable=True)], [], []],
-                                                None,
-                                                convert=True)
-                    half_of_blow_up_of_A = do_not_break_symmetry(blow_up_of_A, self._m)
-                    newA = [half_of_blow_up_of_A, blow_up_of_A]
-                    sandwichi = self.reduce_sandwich(newA, sandwich)
-                    yield sandwichi
+            previous_v = set()
+            for v in sorted(sandwich.B_minus_A_integral_points(), key=lambda x: B_v_order[x]): # pick any integral point in B which is not in A with any given ordering B_v_order
+                blow_up_of_A = self._polyhedra_parent([list(A[1].vertices()) + [vector(v, immutable=True)], [], []],
+                                            None,
+                                            convert=True)
+                half_of_blow_up_of_A = do_not_break_symmetry(blow_up_of_A, self._m)
+                newA = [half_of_blow_up_of_A, blow_up_of_A]
+                sandwichi = self.reduce_sandwich(newA, sandwich, to_be_removed=previous_v)
+                previous_v.add(v)
+                if sandwichi.gap() == 0:
+                    if any(is_extendable(half_of_blow_up_of_A, vv, self._Delta) for vv, vv_order in B_v_order.items() if vv_order < B_v_order[v] and vv in sandwich.B_minus_A_integral_points()):
+                        continue
+                yield sandwichi
         else:
             for v in B.vertices(): # pick a vertex of B which is not in A
 
@@ -847,13 +857,32 @@ def delta_classification(m, Delta, mode, dirname=None, *, order='gap', iteration
 
     match order:
         case 'gap':
-            for sandwich in sf.prepare_sandwiches():
-                sf.append_sandwich(sandwich)
+            if mode == 'delta_cone':
+                B_all = tuple()
+                for sandwich in sf.prepare_sandwiches():
+                    sf.append_sandwich(sandwich)
+                    B_all += tuple(v for v in sandwich.B_minus_A_integral_points() if v not in B_all)
+                B_v_order = {}
+                # for i, v in enumerate(sorted(B_all)):
+                    # B_v_order[v] = i
+                for i, v in enumerate(sorted(B_all, key=lambda x: x.norm(1), reverse=True)):
+                    B_v_order[v] = i
+
+                for v in B_v_order.keys():
+                    mv = -v
+                    mv.set_immutable()
+                    if mv in B_v_order.keys():
+                        B_v_order[mv] = B_v_order[v]
+            else:
+                for sandwich in sf.prepare_sandwiches():
+                    sf.append_sandwich(sandwich)
+                B_v_order = {}
+
             maxGap = max(sf.keys())
             while maxGap > 0:
                 sandwich_factory_statistics(sf)
                 for sandwich in sf[maxGap]:
-                    for new_sandwich in sf.branch_sandwich(sandwich):
+                    for new_sandwich in sf.branch_sandwich(sandwich, B_v_order=B_v_order):
                         sf.append_sandwich(new_sandwich)
                 del sf[maxGap]
                 maxGap = max(sf.keys())
