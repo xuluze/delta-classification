@@ -754,10 +754,6 @@ def layered_polytope_from_sandwich(A,B):
 # the respective key is the sandwich normal form of this sandwich.
 
 
-sandwich_hits = 0
-sandwich_failures = 0
-
-
 class SandwichFactory_base:
 
     @abstract_method
@@ -773,8 +769,6 @@ class SandwichFactory_base:
             If no affine unimodular image of the sandwich (A,B) is in the sandwich factory self,
             the sandwich (A,B) is appended to self.
         """
-        global sandwich_hits, sandwich_failures
-
         Gap = sandwich.gap()
 
         # crucial that sandwich is a LatticePolytope (or something else with a good hash),
@@ -784,10 +778,10 @@ class SandwichFactory_base:
             # self[Gap][sandwich] = [(sandwich._halfA, sandwich._A), sandwich._B]
             if not Gap:
                 print(sandwich)
-            sandwich_failures += 1
+            self.sandwich_failures += 1
             return sandwich
         else:
-            sandwich_hits += 1
+            self.sandwich_hits += 1
             return None
 
     def __repr__(self):
@@ -796,6 +790,14 @@ class SandwichFactory_base:
     @abstract_method
     def branch_sandwich(self, sandwich, *args, **kwds):
         pass
+
+    def sandwich_factory_statistics(self):
+        logging.info("Maximum gap in sandwiches: %d",max(self.keys()))
+        logging.info("Number of sandwiches: %d",sum([len(self[Gap]) for Gap in self.keys() if Gap!=0]))
+        if 0 in self.keys():
+            logging.info("Number of polytopes found: %d", len(self[0]))
+        logging.info(f"Sandwich normal form hits: {self.sandwich_hits}, failures: {self.sandwich_failures}")
+        logging.info(50*"-")
 
 
 class SandwichFactory(defaultdict, SandwichFactory_base):
@@ -822,6 +824,8 @@ class SandwichFactory(defaultdict, SandwichFactory_base):
 
         self._polyhedra_backend = polyhedra_backend
         self._polyhedra_parent = Polyhedra(ZZ, m, backend=polyhedra_backend)
+        self.sandwich_hits = 0
+        self.sandwich_failures = 0
 
     def prepare_sandwiches(self):
         m = self._m
@@ -967,6 +971,9 @@ class SandwichFactory_with_order(defaultdict, SandwichFactory_base):
 
         self._polyhedra_backend = polyhedra_backend
         self._polyhedra_parent = Polyhedra(ZZ, m, backend=polyhedra_backend)
+        self.sandwich_hits = 0
+        self.sandwich_failures = 0
+
         self._B_all = tuple()
 
         if not B_v_order:
@@ -1152,15 +1159,6 @@ def new_sandwich_factory(m, Delta, mode, dirname=None, B_v_order=None, **kwds):
     return sandwich_factory
 
 
-def sandwich_factory_statistics(sf):
-    logging.info("Maximum gap in sandwiches: %d",max(sf.keys()))
-    logging.info("Number of sandwiches: %d",sum([len(sf[Gap]) for Gap in sf.keys() if Gap!=0]))
-    if 0 in sf.keys():
-        logging.info("Number of polytopes found: %d", len(sf[0]))
-    logging.info(f"Sandwich normal form hits: {sandwich_hits}, failures: {sandwich_failures}")
-    logging.info(50*"-")
-
-
 def delta_classification(m, Delta, mode, B_v_order=None, dirname=None, *, order='gap', iterations=None,
                          polyhedra_backend='ppl'):
     """
@@ -1187,13 +1185,13 @@ def delta_classification(m, Delta, mode, B_v_order=None, dirname=None, *, order=
 
             maxGap = max(sf.keys())
             while maxGap > 0:
-                sandwich_factory_statistics(sf)
+                sf.sandwich_factory_statistics()
                 for sandwich in sf[maxGap]:
                     for new_sandwich in sf.branch_sandwich(sandwich):
                         sf.append_sandwich(new_sandwich)
                 del sf[maxGap]
                 maxGap = max(sf.keys())
-            sandwich_factory_statistics(sf)
+            sf.sandwich_factory_statistics()
 
         case _:
             deque = sf._deque
@@ -1225,7 +1223,7 @@ def delta_classification(m, Delta, mode, B_v_order=None, dirname=None, *, order=
                             deque.append(new_sandwich)
 
                 if iteration % 2000 == 0:
-                    sandwich_factory_statistics(sf)  # very expensive when using diskcache.Deque
+                    sf.sandwich_factory_statistics()  # very expensive when using diskcache.Deque
 
                 if iterations is not None and iteration > iterations:
                     break
