@@ -37,6 +37,95 @@ class Sandwich_base:
 
     # Methods needed for storage in SandwichStorage:
 
+    def polyhedra_parent(self):
+        return self._A.parent()
+
+    @abstract_method
+    def __repr__(self):
+        pass
+
+    @abstract_method
+    def plot(self):
+        pass
+
+    @lazy_attribute
+    @abstract_method
+    def _halfA(self):
+        pass
+
+    @lazy_attribute
+    def _A_integral_points(self):
+        return self._A.integral_points()
+
+    def A_integral_points(self):
+        return self._A_integral_points
+
+    def A_integral_points_count(self):
+        return len(self.A_integral_points())
+
+    @cached_method
+    @abstract_method
+    def gap(self):
+        pass
+
+    @cached_method
+    def _key_func_A_dimensions(self):
+        return (self._A.n_facets(), self._A.n_vertices())
+
+    @lazy_attribute
+    def _A_vertex_facet_pairing_matrix(self):
+        return self._A.slack_matrix().transpose()
+
+    @staticmethod
+    def _row_sums(matrix):
+        return Partition(sorted(sum(matrix.columns()), reverse=True))
+
+    @staticmethod
+    def _row_power_sums(matrix, powers):
+        return tuple(Partition(sorted((sum(x**k for x in row) for row in matrix.rows()),
+                                      reverse=True))
+                     for k in powers)
+
+    @staticmethod
+    def _column_sums(matrix):
+        return Partition(sorted(sum(matrix.rows()), reverse=True))
+
+    @staticmethod
+    def _column_power_sums(matrix, powers):
+        return tuple(Partition(sorted((sum(x**k for x in column) for column in matrix.columns()),
+                                      reverse=True))
+                     for k in powers)
+
+    @staticmethod
+    def _row_maxes(matrix):
+        return Partition(sorted((max(x for x in row) for row in matrix.rows()),
+                                reverse=True))
+
+    @staticmethod
+    def _column_maxes(matrix):
+        return Partition(sorted((max(x for x in column) for column in matrix.columns()),
+                                reverse=True))
+
+    @staticmethod
+    def _row_and_column_sums_and_maxes(matrix):
+        return (Sandwich_base._row_sums(matrix), Sandwich_base._column_sums(matrix),
+                Sandwich_base._row_maxes(matrix), Sandwich_base._column_maxes(matrix))
+
+    @staticmethod
+    def _row_and_column_power_sums(matrix, powers):
+        return (Sandwich_base._row_power_sums(matrix, powers), Sandwich_base._column_power_sums(matrix, powers))
+
+    @cached_method
+    def _key_func_A_partitions(self):
+        r"""
+        Invariants: degree-1 symmetric functions, max symmetric functions of rows and columns
+        """
+        return Sandwich_base._row_and_column_sums_and_maxes(self._A_vertex_facet_pairing_matrix)
+
+    @cached_method(do_pickle=True)
+    def _key_func_A_palp_native_normal_form(self):
+        return tuple(self._A.normal_form())
+
     @abstract_method
     def key_funcs(self):
         r"""
@@ -127,9 +216,6 @@ class Sandwich(Sandwich_base):
 
         self._order = order
 
-    def polyhedra_parent(self):
-        return self._A.parent()
-
     def __repr__(self):
         if self.gap():
             return f"Sandwich conv({sorted(self._A.vertices_list())}) ⊆ conv({sorted(self._B.vertices_list())}) with gap {self.gap()}"
@@ -143,16 +229,6 @@ class Sandwich(Sandwich_base):
         A = self._A
         m = A.ambient_dim()
         return break_symmetry(A, m)
-
-    @lazy_attribute
-    def _A_integral_points(self):
-        return self._A.integral_points()
-
-    def A_integral_points(self):
-        return self._A_integral_points
-
-    def A_integral_points_count(self):
-        return len(self.A_integral_points())
 
     @lazy_attribute
     def _B_integral_points(self):
@@ -176,16 +252,11 @@ class Sandwich(Sandwich_base):
 
     @cached_method
     def gap(self):
-        # return len(self.B_minus_A_integral_points())
         return self.B_integral_points_count() - self.A_integral_points_count()
 
     @cached_method
     def _key_func_dimensions(self):
         return (self._A.n_facets(), self._A.n_vertices(), self._B.n_facets(), self._B.n_vertices())
-
-    @cached_method
-    def _key_func_A_dimensions(self):
-        return (self._A.n_facets(), self._A.n_vertices())
 
     @lazy_attribute
     def _B_vertex_facet_pairing_matrix(self):
@@ -207,56 +278,6 @@ class Sandwich(Sandwich_base):
 
         #print(row_sums, column_sums)
         return row_sums, column_sums, row_maxes, column_maxes
-
-    @lazy_attribute
-    def _A_vertex_facet_pairing_matrix(self):
-        return self._A.slack_matrix().transpose()
-
-    @staticmethod
-    def _row_sums(matrix):
-        return Partition(sorted(sum(matrix.columns()), reverse=True))
-
-    @staticmethod
-    def _row_power_sums(matrix, powers):
-        return tuple(Partition(sorted((sum(x**k for x in row) for row in matrix.rows()),
-                                      reverse=True))
-                     for k in powers)
-
-    @staticmethod
-    def _column_sums(matrix):
-        return Partition(sorted(sum(matrix.rows()), reverse=True))
-
-    @staticmethod
-    def _column_power_sums(matrix, powers):
-        return tuple(Partition(sorted((sum(x**k for x in column) for column in matrix.columns()),
-                                      reverse=True))
-                     for k in powers)
-
-    @staticmethod
-    def _row_maxes(matrix):
-        return Partition(sorted((max(x for x in row) for row in matrix.rows()),
-                                reverse=True))
-
-    @staticmethod
-    def _column_maxes(matrix):
-        return Partition(sorted((max(x for x in column) for column in matrix.columns()),
-                                reverse=True))
-
-    @staticmethod
-    def _row_and_column_sums_and_maxes(matrix):
-        return (Sandwich._row_sums(matrix), Sandwich._column_sums(matrix),
-                Sandwich._row_maxes(matrix), Sandwich._column_maxes(matrix))
-
-    @staticmethod
-    def _row_and_column_power_sums(matrix, powers):
-        return (Sandwich._row_power_sums(matrix, powers), Sandwich._column_power_sums(matrix, powers))
-
-    @cached_method
-    def _key_func_A_partitions(self):
-        r"""
-        Invariants: degree-1 symmetric functions, max symmetric functions of rows and columns
-        """
-        return Sandwich._row_and_column_sums_and_maxes(self._A_vertex_facet_pairing_matrix)
 
     @lazy_attribute
     def _A_vertex_B_facet_pairing_matrix(self):
@@ -313,10 +334,6 @@ class Sandwich(Sandwich_base):
         #PNF.set_immutable()
         PNF = self._LLP_PM_max_and_permutations[0]       # same as above, but stores permutations for use by _key_func_LLP_palp_native_normal_form below
         return PNF
-
-    @cached_method(do_pickle=True)
-    def _key_func_A_palp_native_normal_form(self):
-        return tuple(self._A.normal_form())
 
     @cached_method(do_pickle=True)
     def _key_func_LLP_palp_native_normal_form(self):
@@ -384,9 +401,6 @@ class Sandwich_with_order(Sandwich_base):
 
         self._order = order
 
-    def polyhedra_parent(self):
-        return self._A.parent()
-
     def __repr__(self):
         if self.gap():
             return f"Sandwich conv({sorted(self._A.vertices_list())}) with extra candidates {sorted(self._B_minus_A_integral_points)}) and gap {self.gap()}"
@@ -399,80 +413,12 @@ class Sandwich_with_order(Sandwich_base):
     def _halfA(self):
         return tuple(self._A.vertices_list())
 
-    @lazy_attribute
-    def _A_integral_points(self):
-        return self._A.integral_points()
-
-    def A_integral_points(self):
-        return self._A_integral_points
-
-    def A_integral_points_count(self):
-        return len(self.A_integral_points())
-
     def B_minus_A_integral_points(self):
         return self._B_minus_A_integral_points
 
     @cached_method
     def gap(self):
         return len(self.B_minus_A_integral_points())
-
-    @cached_method
-    def _key_func_A_dimensions(self):
-        return (self._A.n_facets(), self._A.n_vertices())
-
-    @lazy_attribute
-    def _A_vertex_facet_pairing_matrix(self):
-        return self._A.slack_matrix().transpose()
-
-    @staticmethod
-    def _row_sums(matrix):
-        return Partition(sorted(sum(matrix.columns()), reverse=True))
-
-    @staticmethod
-    def _row_power_sums(matrix, powers):
-        return tuple(Partition(sorted((sum(x**k for x in row) for row in matrix.rows()),
-                                      reverse=True))
-                     for k in powers)
-
-    @staticmethod
-    def _column_sums(matrix):
-        return Partition(sorted(sum(matrix.rows()), reverse=True))
-
-    @staticmethod
-    def _column_power_sums(matrix, powers):
-        return tuple(Partition(sorted((sum(x**k for x in column) for column in matrix.columns()),
-                                      reverse=True))
-                     for k in powers)
-
-    @staticmethod
-    def _row_maxes(matrix):
-        return Partition(sorted((max(x for x in row) for row in matrix.rows()),
-                                reverse=True))
-
-    @staticmethod
-    def _column_maxes(matrix):
-        return Partition(sorted((max(x for x in column) for column in matrix.columns()),
-                                reverse=True))
-
-    @staticmethod
-    def _row_and_column_sums_and_maxes(matrix):
-        return (Sandwich_with_order._row_sums(matrix), Sandwich_with_order._column_sums(matrix),
-                Sandwich_with_order._row_maxes(matrix), Sandwich_with_order._column_maxes(matrix))
-
-    @staticmethod
-    def _row_and_column_power_sums(matrix, powers):
-        return (Sandwich_with_order._row_power_sums(matrix, powers), Sandwich_with_order._column_power_sums(matrix, powers))
-
-    @cached_method
-    def _key_func_A_partitions(self):
-        r"""
-        Invariants: degree-1 symmetric functions, max symmetric functions of rows and columns
-        """
-        return Sandwich_with_order._row_and_column_sums_and_maxes(self._A_vertex_facet_pairing_matrix)
-
-    @cached_method(do_pickle=True)
-    def _key_func_A_palp_native_normal_form(self):
-        return tuple(self._A.normal_form())
 
     def key_funcs(self):
         return (self._key_func_A_dimensions,
@@ -895,8 +841,6 @@ class SandwichFactory(defaultdict, SandwichFactory_base):
             If no affine unimodular image of the sandwich (A,B) is in the sandwich factory self,
             the sandwich (A,B) is appended to self.
         """
-        global sandwich_hits, sandwich_failures
-
         Gap = sandwich.gap()
 
         # crucial that sandwich is a LatticePolytope (or something else with a good hash),
@@ -905,10 +849,10 @@ class SandwichFactory(defaultdict, SandwichFactory_base):
             self[Gap][sandwich] = [(sandwich._halfA, sandwich._A), sandwich._B]
             if not Gap:
                 print(sandwich)
-            sandwich_failures += 1
+            self.sandwich_failures += 1
             return sandwich
         else:
-            sandwich_hits += 1
+            self.sandwich_hits += 1
             return None
 
     def branch_sandwich(self, sandwich, B_v_order=None):
@@ -1173,7 +1117,8 @@ def delta_classification(m, Delta, mode, B_v_order=None, dirname=None, *, order=
 
       - ``'delta_ext'`` -- only include the extremal examples attaining h(Delta,m)
 
-      - ``'delta_cone' -- oriented, non--centrally symmetric version
+      - ``'delta_cone' -- oriented, non--centrally symmetric version (`conv(A\cup\{0\})`
+        such that `\{x: Ax=0, x\ge 0\}=\{0\}`)
     """
     sf = new_sandwich_factory(m, Delta, mode, B_v_order=B_v_order, dirname=dirname,
                               polyhedra_backend=polyhedra_backend)
