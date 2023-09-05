@@ -31,6 +31,8 @@ logging.basicConfig(format='%(message)s',stream=sys.stdout,level=logging.INFO)
 # that's the template for names of files, in which we store polytopes
 FILE_NAME_DELTA = 'data/dim_%d_delta_%d.txt'
 FILE_NAME_DELTA_EXTR = 'data/dim_%d_delta_%d_extremal.txt'
+FILE_NAME_DELTA_MAX = 'data/dim_%d_delta_%d_maximal.txt'
+FILE_NAME_DELTA_CONE = 'data/dim_%d_delta_%d_trivial_cone.txt'
 
 
 class Sandwich_base:
@@ -682,6 +684,19 @@ def is_extendable(S,v,Delta):
     return True
 
 
+def is_extendable_pair(S,v,w,Delta):
+    """
+        Check whether the extension of a set S of vectors by a vector v causes a determinant to exceed Delta.
+    """
+    m = len(v)
+    M = matrix(S)
+    for C in Combinations(S, m-2):
+        M = matrix(C + [list(v)] + [list(w)])
+        if abs(det(M)) > Delta:
+            return False
+    return True
+
+
 def layered_polytope_from_sandwich(A,B):
     """ 3*B is embedded into height 0, two copies of 3*A are embedded into heights 1 and -1.
         Then, one generates a polytope based on these three layers at heights -1,0 and 1
@@ -1215,64 +1230,150 @@ def plot_delta_classification(m, Delta=None, mode=None, L=None):
                 pass
             return G
 
-## Code below uses boolean "extremal"; above has been generalized to "mode"
+
+def delta_submatrix(S, m, Delta):
+    for C in Combinations(S, m):
+        HNF = matrix(C)
+        if abs(det(HNF)) == Delta:
+            return HNF.transpose()
+    return None
 
 
-def update_delta_classification_database(m,Delta,extremal):
+def is_maximal(A, m, Delta, HNF=None, certificate=False):
+    P_all = A.integral_points()
+    halfA = break_symmetry(A, m)
+    if not HNF:
+        HNF = delta_submatrix(halfA, m, Delta)
+        if not HNF:
+            raise ValueError
+    mA = HNF.augment(-HNF)
+    B = polytopes.parallelotope(mA.transpose())
+    for v in B.integral_points():
+        if not v in P_all:
+            if is_extendable(halfA, v, Delta):
+                if certificate:
+                    return False, v
+                else:
+                    return False
+    if certificate:
+        return True, A
+    else:
+        return True
+
+
+def update_delta_classification_database(m,Delta,mode):
     # the files storing polytopes are created in the data subfolder
     if not os.path.exists('data'):
         os.mkdir('data')
 
     # let's see whether the file for the pair (m,Delta) is missing
-    if (extremal):
-        missingDelta = not os.path.isfile(FILE_NAME_DELTA_EXTR % (m,Delta))
-    else:
-        missingDelta = not os.path.isfile(FILE_NAME_DELTA % (m,Delta))
+    match mode:
+        case 'delta':
+            missingDelta = not os.path.isfile(FILE_NAME_DELTA % (m,Delta))
+        case 'delta_ext':
+            missingDelta = not os.path.isfile(FILE_NAME_DELTA_EXTR % (m,Delta))
+        case 'delta_max':
+            missingDelta = not os.path.isfile(FILE_NAME_DELTA_MAX % (m,Delta))
+        case 'delta_cone':
+            missingDelta = not os.path.isfile(FILE_NAME_DELTA_CONE % (m,Delta))
 
     if missingDelta:
         # we should run the delta classification
 
-        if (extremal):
-            f = open(FILE_NAME_DELTA_EXTR % (m,Delta),'w')
-            if (os.path.isfile(FILE_NAME_DELTA % (m,Delta))):
+        match mode:
+            case 'delta':
+                result = delta_classification(m,Delta,mode)
+                f = open(FILE_NAME_DELTA % (m,Delta),'w')
+                print([[tuple(p) for p in P.vertices()] for P in result],file=f)
+                f.close()
+            case 'delta_max':
+                if not (os.path.isfile(FILE_NAME_DELTA % (m,Delta))):
+                    result = delta_classification(m,Delta,'delta')
+                    f = open(FILE_NAME_DELTA % (m,Delta),'w')
+                    print([[tuple(p) for p in P.vertices()] for P in result],file=f)
+                    f.close()
+                f = open(FILE_NAME_DELTA_MAX % (m,Delta),'w')
                 g = open(FILE_NAME_DELTA % (m,Delta),'r')
                 L = eval(g.read().replace('\n',' '))
                 g.close()
                 hdm = generalized_heller_constant(m,Delta,false)[0]
                 result = []
                 for P in L:
-                    if (Polyhedron(P).integral_points_count() == hdm):
+                    if is_maximal(Polyhedron(P), m, Delta):
                         result.append(P)
                 print([P for P in result],file=f)
                 f.close()
-            else:
-                result = delta_classification(m,Delta,extremal)
+
+            case 'delta_ext':
+                f = open(FILE_NAME_DELTA_EXTR % (m,Delta),'w')
+                if (os.path.isfile(FILE_NAME_DELTA % (m,Delta))):
+                    g = open(FILE_NAME_DELTA % (m,Delta),'r')
+                    L = eval(g.read().replace('\n',' '))
+                    g.close()
+                    hdm = generalized_heller_constant(m,Delta,false)[0]
+                    result = []
+                    for P in L:
+                        if (Polyhedron(P).integral_points_count() == hdm):
+                            result.append(P)
+                    print([P for P in result],file=f)
+                    f.close()
+                else:
+                    result = delta_classification(m,Delta,extremal)
+                    print([[tuple(p) for p in P.vertices()] for P in result],file=f)
+                    f.close()
+            case 'delta_cone':
+                result = delta_classification(m,Delta,mode)
+                f = open(FILE_NAME_DELTA_CONE % (m,Delta),'w')
                 print([[tuple(p) for p in P.vertices()] for P in result],file=f)
                 f.close()
-        else:
-            result = delta_classification(m,Delta,extremal)
-            f = open(FILE_NAME_DELTA % (m,Delta),'w')
-            print([[tuple(p) for p in P.vertices()] for P in result],file=f)
-            f.close()
 
 
-def lattice_polytopes_with_given_dimension_and_delta(m,Delta,extremal):
+def lattice_polytopes_with_given_dimension_and_delta(m,Delta,mode):
     """
-        That's the main function for users of this module. It returns the list of all [extremal=false] or only h(Delta,m)-attaining [extremal=true]
-        m-dimensional centrally symmetric lattice polytopes with delta equal to Delta.
+    That's the main function for users of this module. It returns the list of all [extremal=false] or only h(Delta,m)-attaining [extremal=true]
+    m-dimensional centrally symmetric lattice polytopes with delta equal to Delta.
+
+    INPUT:
+
+    - ``mode`` -- one of
+
+      - ``'delta'`` or ``False`` -- classify all centrally symmetric m-dimensional lattice polytopes
+        with largest determinant equal to Delta
+
+      - ``'delta_max'`` or ``True`` -- only include the inclusion maximal examples
+
+      - ``'delta_ext'`` -- only include the extremal examples attaining h(Delta,m)
+
+      - ``'delta_cone' -- oriented, non--centrally symmetric version (`conv(A\cup\{0\})`
+        such that `\{x: Ax=0, x\ge 0\}=\{0\}`)
     """
+    if not mode:
+        mode = 'delta'
+    elif mode is True:
+        mode = 'delta_ext'
+
+    if mode not in ['delta', 'delta_ext', 'delta_max', 'delta_cone']:
+        raise ValueError("Unknown computation mode", mode)
     # first, we update the database of lattice polytopes with a given delta
-    update_delta_classification_database(m,Delta,extremal)
+    update_delta_classification_database(m,Delta,mode)
 
     # now, we can read the list of polytopes from the corresponding file and return them
-    if (extremal):
-        f = open(FILE_NAME_DELTA_EXTR % (m,Delta),'r')
-    else:
-        f = open(FILE_NAME_DELTA % (m,Delta),'r')
+    match mode:
+        case 'delta':
+            f = open(FILE_NAME_DELTA % (m,Delta),'r')
+        case 'delta_ext':
+            f = open(FILE_NAME_DELTA_EXTR % (m,Delta),'r')
+        case 'delta_max':
+            f = open(FILE_NAME_DELTA_MAX % (m,Delta),'r')
+        case 'delta_cone':
+            f = open(FILE_NAME_DELTA_CONE % (m,Delta),'r')
 
     L = eval(f.read().replace('\n',' '))
     f.close()
     return [Polyhedron(P) for P in L]
+
+
+## Code below uses boolean "extremal"; above has been generalized to "mode"
 
 
 def generalized_heller_constant(m,Delta,extremal):
@@ -1280,7 +1381,12 @@ def generalized_heller_constant(m,Delta,extremal):
         Compute the generalized Heller constant h(Delta,m) and a point set attaining it
     """
 
-    DeltaPolytopes = lattice_polytopes_with_given_dimension_and_delta(m,Delta,extremal)
+    if not extremal:
+        mode = 'delta'
+    else:
+        mode = 'delta_ext'
+
+    DeltaPolytopes = lattice_polytopes_with_given_dimension_and_delta(m,Delta,mode)
     nmax = 0
     for P in DeltaPolytopes:
         npoints = P.integral_points_count()
@@ -1288,4 +1394,3 @@ def generalized_heller_constant(m,Delta,extremal):
             nmax = npoints
             Pmax = P
     return nmax , Pmax, len(DeltaPolytopes)
-
