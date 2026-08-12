@@ -33,6 +33,7 @@ FILE_NAME_DELTA = 'data/dim_%d_delta_%d.txt'
 FILE_NAME_DELTA_EXTR = 'data/dim_%d_delta_%d_extremal.txt'
 FILE_NAME_DELTA_MAX = 'data/dim_%d_delta_%d_maximal.txt'
 FILE_NAME_DELTA_CONE = 'data/dim_%d_delta_%d_trivial_cone.txt'
+FILE_NAME_DELTA_SIMPLE = 'data/dim_%d_delta_%d_simple.txt'
 
 
 class Sandwich_base:
@@ -1276,6 +1277,8 @@ def update_delta_classification_database(m,Delta,mode):
             missingDelta = not os.path.isfile(FILE_NAME_DELTA_MAX % (m,Delta))
         case 'delta_cone':
             missingDelta = not os.path.isfile(FILE_NAME_DELTA_CONE % (m,Delta))
+        case 'delta_simple':
+            missingDelta = not os.path.isfile(FILE_NAME_DELTA_SIMPLE % (m,Delta))
 
     if missingDelta:
         # we should run the delta classification
@@ -1326,6 +1329,24 @@ def update_delta_classification_database(m,Delta,mode):
                 f = open(FILE_NAME_DELTA_CONE % (m,Delta),'w')
                 print([[tuple(p) for p in P.vertices()] for P in result],file=f)
                 f.close()
+            case 'delta_simple':
+                if not (os.path.isfile(FILE_NAME_DELTA_MAX % (m,Delta))):
+                    update_delta_classification_database(m, Delta, 'delta_max')
+                f = open(FILE_NAME_DELTA_SIMPLE % (m,Delta),'w')
+                g = open(FILE_NAME_DELTA_MAX % (m,Delta),'r')
+                L = eval(g.read().replace('\n',' '))
+                g.close()
+                result = []
+                for P in L:
+                    poly = Polyhedron(P)
+                    prim_pts = [tuple(v) for v in poly.integral_points() if gcd(list(v)) == 1 and next((x for x in v if x != 0), None) > 0]
+                    prim_pts.sort()
+                    if not prim_pts:
+                        continue
+                    if prim_pts not in result:
+                        result.append(prim_pts)
+                print(result,file=f)
+                f.close()
 
 
 def lattice_polytopes_with_given_dimension_and_delta(m,Delta,mode):
@@ -1344,15 +1365,17 @@ def lattice_polytopes_with_given_dimension_and_delta(m,Delta,mode):
 
       - ``'delta_ext'`` -- only include the extremal examples attaining h(Delta,m)
 
-      - ``'delta_cone' -- oriented, non--centrally symmetric version (`conv(A\cup\{0\})`
+      - ``'delta_cone'`` -- oriented, non--centrally symmetric version (`conv(A\cup\{0\})`
         such that `\{x: Ax=0, x\ge 0\}=\{0\}`)
+        
+      - ``'delta_simple'`` -- primitive delta-modular matrices where all integer points have gcd 1
     """
     if not mode:
         mode = 'delta'
     elif mode is True:
         mode = 'delta_ext'
 
-    if mode not in ['delta', 'delta_ext', 'delta_max', 'delta_cone']:
+    if mode not in ['delta', 'delta_ext', 'delta_max', 'delta_cone', 'delta_simple']:
         raise ValueError("Unknown computation mode", mode)
     # first, we update the database of lattice polytopes with a given delta
     update_delta_classification_database(m,Delta,mode)
@@ -1367,6 +1390,8 @@ def lattice_polytopes_with_given_dimension_and_delta(m,Delta,mode):
             f = open(FILE_NAME_DELTA_MAX % (m,Delta),'r')
         case 'delta_cone':
             f = open(FILE_NAME_DELTA_CONE % (m,Delta),'r')
+        case 'delta_simple':
+            f = open(FILE_NAME_DELTA_SIMPLE % (m,Delta),'r')
 
     L = eval(f.read().replace('\n',' '))
     f.close()

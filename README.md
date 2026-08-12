@@ -20,3 +20,11 @@ This folder includes lists of o-symmetric lattice polytopes P with a given dimen
 * **dim_3_delta_[1-12]_extremal.txt**: extremal o-symmetric lattice polytopes with \Delta(P) in [1-12] in dimension 3
 * **dim_4_delta_[1-2].txt**: o-symmetric lattice polytopes with \Delta(P) in [1-2] in dimension 4
 * **dim_4_delta_[1-3]_extremal**: extremal o-symmetric lattice polytopes with \Delta(P) in [1-3] in dimension 4
+
+## Dependencies
+
+The core mathematical logic depends on the following minimum `passagemath` components:
+
+```bash
+pip install passagemath-polyhedra passagemath-combinat passagemath-palp
+```
