@@ -11,6 +11,7 @@ from sage.all__sagemath_combinat import *
 from polytopes import *
 
 import functools
+import ast
 import itertools
 import logging
 import os.path
@@ -348,8 +349,11 @@ class Sandwich(Sandwich_base):
 
     def key_funcs(self):
         if self.gap():
+            # Coarse invariants can coincide for inequivalent sandwiches.
+            # Resolve collisions using the full layered-polytope normal form.
             return (self._key_func_dimensions,
-                    self._key_func_A_vertex_B_facet_partitions)
+                    self._key_func_A_vertex_B_facet_partitions,
+                    self._key_func_LLP_palp_native_normal_form)
         return (self._key_func_A_dimensions,
                 # self._key_func_A_partitions,
                 #self._key_func_B_partitions,
@@ -1125,7 +1129,14 @@ def new_sandwich_factory(m, Delta, mode, dirname=None, B_v_order=None, **kwds):
 def delta_classification(m, Delta, mode, B_v_order=None, dirname=None, *, order='gap', iterations=None,
                          polyhedra_backend='ppl'):
     r"""
-    Run the sandwich factory algorithm.
+    Classify polytopes or load/generate primitive-column sets.
+
+    Return polyhedra for the sandwich algorithm modes. For ``delta_simple``,
+    return a list of column sets, each a list of coordinate tuples. Read
+    ``data/dim_<m>_delta_<Delta>_simple.txt`` if present; otherwise generate
+    it from the inclusion-maximal classification. Paths are relative to the
+    current working directory. Sandwich search options apply only to the
+    other modes; primitive-column generation uses the default database path.
 
     INPUT:
 
@@ -1138,7 +1149,22 @@ def delta_classification(m, Delta, mode, B_v_order=None, dirname=None, *, order=
 
       - ``'delta_cone' -- oriented, non--centrally symmetric version (`conv(A\cup\{0\})`
         such that `\{x: Ax=0, x\ge 0\}=\{0\}`)
+
+      - ``'delta_simple'`` -- primitive columns from inclusion-maximal
+        polytopes: coordinate gcd 1 and first nonzero coordinate positive.
+        Keep one representative per sign pair, including nonvertex points.
+        Rank and largest absolute minor can decrease after extraction.
+
+    EXAMPLE (Python)::
+
+        columns = delta_classification(2, 5, mode='delta_simple')
+        matrices = [matrix(ZZ, vectors).transpose() for vectors in columns]
     """
+    if mode == 'delta_simple':
+        update_delta_classification_database(m, Delta, mode)
+        with open(FILE_NAME_DELTA_SIMPLE % (m, Delta)) as source:
+            return ast.literal_eval(source.read())
+
     sf = new_sandwich_factory(m, Delta, mode, B_v_order=B_v_order, dirname=dirname,
                               polyhedra_backend=polyhedra_backend)
 
@@ -1266,6 +1292,20 @@ def is_maximal(A, m, Delta, HNF=None, certificate=False):
 
 
 def update_delta_classification_database(m,Delta,mode):
+    """Create missing classification files in ``data/`` relative to the cwd.
+
+    For ``mode='delta_simple'``, first obtain the inclusion-maximal
+    classification (``delta_max``). For each polytope, select lattice points
+    whose coordinate gcd is 1 and whose first nonzero coordinate is positive.
+    This excludes zero and chooses one representative of each sign pair.
+    Sort each column list and remove identical lists before saving them to
+    ``data/dim_<m>_delta_<Delta>_simple.txt`` as Python literal lists of tuples.
+
+    These tuples are the complete primitive columns, including points that
+    need not be vertices of their convex hull. This extraction does not
+    recheck rank or equality of the largest absolute minor to ``Delta``.
+    Existing files are reused; this function does not overwrite cached data.
+    """
     # the files storing polytopes are created in the data subfolder
     if not os.path.exists('data'):
         os.mkdir('data')
@@ -1354,8 +1394,10 @@ def update_delta_classification_database(m,Delta,mode):
 
 def lattice_polytopes_with_given_dimension_and_delta(m,Delta,mode):
     r"""
-    That's the main function for users of this module. It returns the list of all [extremal=false] or only h(Delta,m)-attaining [extremal=true]
-    m-dimensional centrally symmetric lattice polytopes with delta equal to Delta.
+    Load a classification from ``data/``, computing missing data as needed.
+
+    Return a list of polyhedra. Primitive-column sets are available through
+    ``delta_classification(m, Delta, mode='delta_simple')`` instead.
 
     INPUT:
 
@@ -1364,21 +1406,29 @@ def lattice_polytopes_with_given_dimension_and_delta(m,Delta,mode):
       - ``'delta'`` or ``False`` -- classify all centrally symmetric m-dimensional lattice polytopes
         with largest determinant equal to Delta
 
-      - ``'delta_max'`` or ``True`` -- only include the inclusion maximal examples
+      - ``'delta_max'`` -- only include the inclusion maximal examples
 
       - ``'delta_ext'`` -- only include the extremal examples attaining h(Delta,m)
 
       - ``'delta_cone'`` -- oriented, non--centrally symmetric version (`conv(A\cup\{0\})`
         such that `\{x: Ax=0, x\ge 0\}=\{0\}`)
         
-      - ``'delta_simple'`` -- primitive delta-modular matrices where all integer points have gcd 1
+    The legacy value ``True`` selects ``delta_ext``.
+
+    ``delta_simple`` raises ``ValueError`` directing callers to
+    ``delta_classification``, which preserves every primitive column.
     """
     if not mode:
         mode = 'delta'
     elif mode is True:
         mode = 'delta_ext'
 
-    if mode not in ['delta', 'delta_ext', 'delta_max', 'delta_cone', 'delta_simple']:
+    if mode == 'delta_simple':
+        raise ValueError(
+            "delta_simple returns primitive column sets, not polyhedra. "
+            "Use delta_classification(m, Delta, mode='delta_simple') instead.")
+
+    if mode not in ['delta', 'delta_ext', 'delta_max', 'delta_cone']:
         raise ValueError("Unknown computation mode", mode)
     # first, we update the database of lattice polytopes with a given delta
     update_delta_classification_database(m,Delta,mode)
@@ -1393,8 +1443,6 @@ def lattice_polytopes_with_given_dimension_and_delta(m,Delta,mode):
             f = open(FILE_NAME_DELTA_MAX % (m,Delta),'r')
         case 'delta_cone':
             f = open(FILE_NAME_DELTA_CONE % (m,Delta),'r')
-        case 'delta_simple':
-            f = open(FILE_NAME_DELTA_SIMPLE % (m,Delta),'r')
 
     L = eval(f.read().replace('\n',' '))
     f.close()
@@ -1422,4 +1470,3 @@ def generalized_heller_constant(m,Delta,extremal):
             nmax = npoints
             Pmax = P
     return nmax , Pmax, len(DeltaPolytopes)
-

@@ -60,6 +60,24 @@ print(len(extremal))  # 1
 
 The function returns a list of polyhedra. Use `p.vertices()` to inspect a polyhedron's vertices and `p.integral_points()` to obtain its lattice points.
 
+### Primitive columns (`delta_simple`)
+
+Use `mode="delta_simple"` to obtain primitive columns (coordinate gcd 1)
+from inclusion-maximal polytopes, keeping one representative per sign pair.
+
+```python
+from delta_classification import ZZ, matrix, delta_classification
+
+column_sets = delta_classification(m=2, Delta=5, mode="delta_simple")
+print([len(columns) for columns in column_sets])  # [7, 8, 8]
+
+# Construct matrices with these vectors as columns.
+matrices = [matrix(ZZ, columns).transpose() for columns in column_sets]
+```
+
+This mode returns lists of column tuples, loading cached data or generating
+it in `data/` if missing.
+
 ## GPT assistance
 
 GPT assisted with adapting the Sage code for Python and modular passagemath, checking dependencies, writing tests, and preparing documentation. The original mathematical algorithms and classification data are credited to the upstream authors.

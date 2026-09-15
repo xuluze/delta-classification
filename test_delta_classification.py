@@ -4,10 +4,17 @@ import ast
 from collections import Counter
 from itertools import combinations
 import logging
+from math import gcd
+import os
 from pathlib import Path
+import shutil
+import tempfile
 import unittest
 
-from delta_classification import Polyhedron, delta_classification
+from delta_classification import (
+    Polyhedron, delta_classification,
+    lattice_polytopes_with_given_dimension_and_delta,
+)
 
 
 def normal_form(polytope):
@@ -73,6 +80,51 @@ class DeltaClassificationTest(unittest.TestCase):
         load_source("delta-classification.sage")
         original = namespace["delta_classification"](2, 5, "delta")
         self.assertEqual(Counter(map(normal_form, original)), Counter(map(normal_form, self.result)))
+
+
+class PrimitiveColumnsTest(unittest.TestCase):
+    def test_fresh_classification_preserves_primitive_maxima(self):
+        # Bypass database files: incomplete sandwich enumeration lost these examples.
+        for delta, expected in ((19, 23), (23, 27)):
+            with self.subTest(delta=delta):
+                result = delta_classification(2, delta, "delta")
+                maximum = max(
+                    sum(gcd(*map(int, v)) == 1 for v in p.integral_points()) // 2
+                    for p in result
+                )
+                self.assertEqual(maximum, expected)
+
+    def setUp(self):
+        self.repo = Path(__file__).resolve().parent
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        previous = Path.cwd()
+        self.addCleanup(os.chdir, previous)
+        os.chdir(temporary.name)
+        Path("data").mkdir()
+
+    def test_cached_columns_are_preserved(self):
+        # Include a nonvertex primitive point: hull conversion would lose it.
+        columns = [[(1, 0), (1, 1), (1, 2)]]
+        cache = Path("data/dim_2_delta_5_simple.txt")
+        cache.write_text(repr(columns))
+        before = cache.stat().st_mtime_ns
+        self.assertEqual(delta_classification(2, 5, "delta_simple"), columns)
+        self.assertEqual(cache.stat().st_mtime_ns, before)
+
+    def test_generates_missing_columns(self):
+        shutil.copy2(self.repo / "data/dim_2_delta_5_maximal.txt", "data")
+        expected = ast.literal_eval(
+            (self.repo / "data/dim_2_delta_5_simple.txt").read_text())
+        result = delta_classification(2, 5, "delta_simple")
+        self.assertEqual(result, expected)
+        self.assertEqual(ast.literal_eval(
+            Path("data/dim_2_delta_5_simple.txt").read_text()), expected)
+
+    def test_polytope_wrapper_redirects_before_writing(self):
+        with self.assertRaisesRegex(ValueError, "Use delta_classification"):
+            lattice_polytopes_with_given_dimension_and_delta(2, 5, "delta_simple")
+        self.assertEqual(list(Path("data").iterdir()), [])
 
 
 if __name__ == "__main__":
